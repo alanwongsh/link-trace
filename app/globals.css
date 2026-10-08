@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #f3efe6;
+  --color-ink: #1c1916;
+  --color-muted: #6e685e;
+  --color-line: #e3dacb;
+  --color-card: #fffdf8;
+  --color-teal: #0f5f5a;
+  --color-warn: #8f3d2b;
+}
+
+@theme inline {
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), ui-serif, Georgia, serif;
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(15, 95, 90, 0.08), transparent 55%),
+    var(--color-paper);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: #d5ebe7;
+}
+
+.field {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line);
+  background: white;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.field:focus {
+  border-color: var(--color-teal);
+  box-shadow: 0 0 0 3px rgba(15, 95, 90, 0.15);
+}
+
+.tag-box {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line);
+  background: white;
+  padding: 0.45rem 0.55rem;
+}
+
+.tag-box:focus-within {
+  border-color: var(--color-teal);
+  box-shadow: 0 0 0 3px rgba(15, 95, 90, 0.15);
+}
+
+.tag-box input {
+  min-width: 8rem;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0.3rem;
+  outline: none;
+}
+
+.btn-primary {
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-teal);
+  color: #f7f4ee;
+  padding: 0.65rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: #0c4e4a;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
