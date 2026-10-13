@@ -1,7 +1,10 @@
+export type LinkKind = "redirect" | "page";
+
 export type LinkSummary = {
   id: string;
   slug: string;
-  url: string;
+  kind: LinkKind;
+  url: string | null;
   title: string | null;
   tags: string[];
   created_at: string;
@@ -33,7 +36,8 @@ export type LinkDetail = {
   link: {
     id: string;
     slug: string;
-    url: string;
+    kind: LinkKind;
+    url: string | null;
     title: string | null;
     tags: string[];
     created_at: string;
@@ -73,7 +77,7 @@ export type Failure = {
 export type Result<T> = { ok: true; data: T } | Failure;
 
 export function schemaProblem(message: string): boolean {
-  return /schema cache|does not exist|link_summaries|link_detail|PGRST20[45]/i.test(
+  return /does not exist|link_summaries|link_detail/i.test(
     message,
   );
 }

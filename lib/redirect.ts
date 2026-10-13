@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { findDestination, insertClick } from "@/lib/data";
+import { hostedPageResponse } from "@/lib/hosted-page";
 import { VISITOR_COOKIE } from "@/lib/session";
 import { normalizeTag } from "@/lib/slug";
 import { describeClick, isPrefetch } from "@/lib/track";
@@ -34,8 +35,16 @@ export async function traceAndRedirect(
     await insertClick(found.data.id, click, tag);
   }
 
-  const response = NextResponse.redirect(found.data.url, 302);
-  response.headers.set("Cache-Control", "no-store");
+  const { kind, url, html } = found.data;
+  let response: NextResponse;
+  if (kind === "page" && html !== null) {
+    response = hostedPageResponse(html);
+  } else if (url) {
+    response = NextResponse.redirect(url, 302);
+    response.headers.set("Cache-Control", "no-store");
+  } else {
+    return notFoundResponse();
+  }
   if (click.isNewVisitor) {
     response.cookies.set(VISITOR_COOKIE, click.visitorId, {
       httpOnly: true,

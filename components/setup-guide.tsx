@@ -1,20 +1,19 @@
 export function SetupGuide({ message }: { message: string }) {
   return (
     <section className="rounded-2xl border border-line bg-card p-5 text-sm leading-6">
-      <h2 className="font-serif text-2xl text-ink">Connect Supabase</h2>
+      <h2 className="font-serif text-2xl text-ink">Connect the database</h2>
       <p className="mt-2 text-muted">{message}</p>
       <ol className="mt-4 grid list-decimal gap-2 pl-5 text-ink">
-        <li>Create a project at supabase.com.</li>
+        <li>Create a Postgres database, for example a project at supabase.com.</li>
         <li>
-          Open the SQL editor and run <code className="font-mono">supabase/schema.sql</code>.
+          Set <code className="font-mono">DATABASE_URL</code> and{" "}
+          <code className="font-mono">ADMIN_PASSWORD</code> in{" "}
+          <code className="font-mono">.env.local</code> and in Vercel.
         </li>
         <li>
-          In Vercel, add the Supabase integration or set{" "}
-          <code className="font-mono">SUPABASE_URL</code>,{" "}
-          <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code>, and{" "}
-          <code className="font-mono">ADMIN_PASSWORD</code>.
+          Run <code className="font-mono">npm run db:migrate</code> to create the tables.
         </li>
-        <li>Redeploy. Locally, put the same values in <code className="font-mono">.env.local</code>.</li>
+        <li>Restart the dev server, or redeploy.</li>
       </ol>
     </section>
   );

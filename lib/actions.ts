@@ -5,7 +5,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, sessionCookieOptions } from "@/lib/auth";
 import { deleteLink, findDestination, insertLink, saveTags } from "@/lib/data";
-import { createSlug, MAX_TAGS, normalizeSlug, normalizeUrl, parseTags } from "@/lib/slug";
+import {
+  createSlug,
+  MAX_TAGS,
+  normalizePageHtml,
+  normalizeSlug,
+  normalizeUrl,
+  parseTags,
+} from "@/lib/slug";
 import {
   SESSION_COOKIE,
   passwordMatches,
@@ -50,9 +57,18 @@ export async function createLink(
 ): Promise<CreateState> {
   await requireSession();
 
-  const url = normalizeUrl(String(formData.get("url") ?? ""));
-  if (!url) {
-    return { error: "Enter a full http or https URL.", slug: "" };
+  const kind = formData.get("kind") === "page" ? "page" : "redirect";
+  let url: string | null = null;
+  let html: string | null = null;
+  if (kind === "page") {
+    const page = normalizePageHtml(String(formData.get("html") ?? ""));
+    if (!page.ok) return { error: page.error, slug: "" };
+    html = page.html;
+  } else {
+    url = normalizeUrl(String(formData.get("url") ?? ""));
+    if (!url) {
+      return { error: "Enter a full http or https URL.", slug: "" };
+    }
   }
 
   const titleRaw = String(formData.get("title") ?? "").trim();
@@ -70,7 +86,7 @@ export async function createLink(
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const created = await insertLink({ slug, url, title, tags: parsedTags.tags });
+    const created = await insertLink({ slug, kind, url, html, title, tags: parsedTags.tags });
     if (created.ok) {
       revalidatePath("/");
       return { error: "", slug };

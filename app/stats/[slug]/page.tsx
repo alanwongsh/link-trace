@@ -2,7 +2,9 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { AddTagsForm } from "@/components/add-tags-form";
 import { CopyButton } from "@/components/copy-button";
+import { LinkTarget } from "@/components/link-target";
 import { LocalTime } from "@/components/local-time";
+import { PagePreview } from "@/components/page-preview";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
@@ -71,15 +73,14 @@ export default async function StatsPage({
             <span className="font-mono text-teal">{shortUrl}</span>
             <CopyButton value={shortUrl} />
           </p>
-          <a
-            href={detail.link.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 block truncate text-sm text-muted hover:text-ink"
-          >
-            {detail.link.url}
-          </a>
+          <LinkTarget slug={detail.link.slug} kind={detail.link.kind} url={detail.link.url} />
         </div>
+
+        {detail.link.kind === "page" ? (
+          <section className="rounded-2xl border border-line bg-card p-5">
+            <PagePreview src={`/stats/${detail.link.slug}/preview`} title={`Preview of ${detail.link.slug}`} />
+          </section>
+        ) : null}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d} in 7 days`} />

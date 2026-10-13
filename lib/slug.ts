@@ -55,3 +55,17 @@ export function normalizeUrl(input: string): string | null {
     return null;
   }
 }
+
+// Keeps a hosted page well under the 1 MB server action body limit.
+export const MAX_PAGE_BYTES = 512 * 1024;
+
+export function normalizePageHtml(
+  input: string,
+): { ok: true; html: string } | { ok: false; error: string } {
+  const html = input.trim();
+  if (!html) return { ok: false, error: "Paste the page HTML or load an .html file." };
+  if (new TextEncoder().encode(html).length > MAX_PAGE_BYTES) {
+    return { ok: false, error: "The page is over 512 KB. Host images elsewhere and link to them." };
+  }
+  return { ok: true, html };
+}

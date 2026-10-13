@@ -1,54 +1,6 @@
--- Link Trace schema. Safe to run again in the Supabase SQL editor.
--- Tables stay private: row level security is on, and there are no public policies.
--- The Next.js server uses the service role key, which bypasses RLS.
--- Re-run this file to add platform tags if you created the tables earlier.
-
-create table if not exists public.links (
-  id uuid primary key default gen_random_uuid(),
-  slug text not null unique,
-  url text not null,
-  title text,
-  tags text[] not null default '{}',
-  created_at timestamptz not null default now()
-);
-
-alter table public.links add column if not exists tags text[] not null default '{}';
-
-create table if not exists public.clicks (
-  id uuid primary key default gen_random_uuid(),
-  link_id uuid not null references public.links (id) on delete cascade,
-  visitor_id text not null,
-  ip text,
-  user_agent text,
-  referrer text,
-  country text,
-  region text,
-  city text,
-  is_bot boolean not null default false,
-  tag text,
-  clicked_at timestamptz not null default now()
-);
-
-alter table public.clicks add column if not exists tag text;
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'links_tags_len'
-  ) then
-    alter table public.links
-      add constraint links_tags_len check (cardinality(tags) <= 12);
-  end if;
-end $$;
-
-create index if not exists clicks_link_id_clicked_at_idx
-  on public.clicks (link_id, clicked_at desc);
-
-alter table public.links enable row level security;
-alter table public.clicks enable row level security;
-
-create or replace view public.link_summaries
-with (security_invoker = true) as
+-- Expose links.kind on the dashboard view and in link_detail(). New view columns must go last.
+CREATE OR REPLACE VIEW "link_summaries"
+WITH (security_invoker = true) AS
 select
   l.id,
   l.slug,
@@ -58,12 +10,13 @@ select
   l.created_at,
   count(c.id) filter (where c.id is not null and not c.is_bot)::int as click_count,
   count(distinct c.visitor_id) filter (where not c.is_bot)::int as visitor_count,
-  count(distinct c.ip) filter (where not c.is_bot)::int as ip_count
+  count(distinct c.ip) filter (where not c.is_bot)::int as ip_count,
+  l.kind
 from public.links l
 left join public.clicks c on c.link_id = l.id
 group by l.id;
-
-create or replace function public.link_detail(p_slug text)
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION "link_detail"(p_slug text)
 returns jsonb
 language sql
 stable
@@ -71,7 +24,7 @@ security definer
 set search_path = public
 as $$
   with target as (
-    select id, slug, url, title, tags, created_at
+    select id, slug, kind, url, title, tags, created_at
     from links
     where slug = p_slug
   ),
@@ -104,6 +57,7 @@ as $$
         select jsonb_build_object(
           'id', id,
           'slug', slug,
+          'kind', kind,
           'url', url,
           'title', title,
           'tags', coalesce(to_jsonb(tags), '[]'::jsonb),
@@ -202,15 +156,3 @@ as $$
     )
   end;
 $$;
-
-revoke all on function public.link_detail(text) from public;
-revoke all on function public.link_detail(text) from anon, authenticated;
-grant execute on function public.link_detail(text) to service_role;
-
-revoke all on public.links from anon, authenticated;
-revoke all on public.clicks from anon, authenticated;
-revoke all on public.link_summaries from anon, authenticated;
-
-grant select, insert, update, delete on public.links to service_role;
-grant select, insert, update, delete on public.clicks to service_role;
-grant select on public.link_summaries to service_role;

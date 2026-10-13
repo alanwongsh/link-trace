@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { CreateLinkForm } from "@/components/create-link-form";
 import { CopyButton } from "@/components/copy-button";
 import { DeleteLinkButton } from "@/components/delete-link-button";
+import { LinkTarget } from "@/components/link-target";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { listLinks } from "@/lib/data";
@@ -70,15 +71,7 @@ export default async function HomePage() {
                     {link.title || link.slug}
                   </a>
                   <p className="mt-1 truncate font-mono text-sm text-teal">{shortUrl}</p>
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 block truncate text-sm text-muted hover:text-ink"
-                    title={link.url}
-                  >
-                    {link.url}
-                  </a>
+                  <LinkTarget slug={link.slug} kind={link.kind} url={link.url} />
                   {link.tags.length > 0 ? (
                     <ul className="mt-3 flex flex-wrap gap-2">
                       {link.tags.map((tag) => (
