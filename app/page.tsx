@@ -1,28 +1,19 @@
-import { headers } from "next/headers";
 import { CreateLinkForm } from "@/components/create-link-form";
 import { CopyButton } from "@/components/copy-button";
+import { QrButton } from "@/components/qr-button";
 import { DeleteLinkButton } from "@/components/delete-link-button";
 import { LinkTarget } from "@/components/link-target";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { listLinks } from "@/lib/data";
+import { appOrigin } from "@/lib/origin";
 import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
 
-async function origin(): Promise<string> {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  }
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const proto = headerList.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
-}
-
 export default async function HomePage() {
   const result = await listLinks();
-  const base = await origin();
+  const base = await appOrigin();
   const links = result.ok ? result.data : [];
   const visits = links.reduce((sum, link) => sum + link.click_count, 0);
   const meta = result.ok
@@ -99,6 +90,7 @@ export default async function HomePage() {
                     <LocalTime iso={link.created_at} withTime={false} />
                   </p>
                   <CopyButton value={shortUrl} />
+                  <QrButton slug={link.slug} url={shortUrl} />
                   <DeleteLinkButton slug={link.slug} />
                 </div>
               </article>

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { AddTagsForm } from "@/components/add-tags-form";
 import { CopyButton } from "@/components/copy-button";
@@ -7,10 +6,12 @@ import { EditTargetForm } from "@/components/edit-target-form";
 import { LinkTarget } from "@/components/link-target";
 import { LocalTime } from "@/components/local-time";
 import { PagePreview } from "@/components/page-preview";
+import { QrButton } from "@/components/qr-button";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { findDestination, loadDetail } from "@/lib/data";
+import { appOrigin } from "@/lib/origin";
 import {
   browserLabel,
   countryName,
@@ -21,16 +22,6 @@ import {
 } from "@/lib/track";
 
 export const dynamic = "force-dynamic";
-
-async function origin(): Promise<string> {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  }
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const proto = headerList.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
-}
 
 export default async function StatsPage({
   params,
@@ -60,7 +51,7 @@ export default async function StatsPage({
   const target = destination.ok ? destination.data : null;
   // Changes when the page is edited, so the preview iframe reloads.
   const pageVersion = target?.html ? createHash("sha1").update(target.html).digest("hex").slice(0, 10) : "";
-  const base = await origin();
+  const base = await appOrigin();
   const shortUrl = `${base}/r/${detail.link.slug}`;
   const maxClicks = Math.max(...detail.daily.map((day) => day.clicks), 0);
 
@@ -119,6 +110,8 @@ export default async function StatsPage({
             {detail.tag_stats.map((row) => (
               <PlatformRow
                 key={row.tag}
+                slug={detail.link.slug}
+                tag={row.tag}
                 label={row.tag}
                 url={`${shortUrl}/${row.tag}`}
                 clicks={row.clicks}
@@ -126,6 +119,7 @@ export default async function StatsPage({
               />
             ))}
             <PlatformRow
+              slug={detail.link.slug}
               label="Untagged"
               url={shortUrl}
               clicks={detail.untagged_clicks}
@@ -230,11 +224,15 @@ export default async function StatsPage({
 }
 
 function PlatformRow({
+  slug,
+  tag,
   label,
   url,
   clicks,
   visitors,
 }: {
+  slug: string;
+  tag?: string;
   label: string;
   url: string;
   clicks: number;
@@ -254,6 +252,7 @@ function PlatformRow({
           <span className="num">{visitors}</span> <span className="text-muted">visitors</span>
         </p>
         <CopyButton value={url} />
+        <QrButton slug={slug} tag={tag} url={url} />
       </div>
     </li>
   );
