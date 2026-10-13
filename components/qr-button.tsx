@@ -21,11 +21,11 @@ export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: 
         onClick={(event) => {
           if (event.target === dialogRef.current) dialogRef.current?.close();
         }}
-        className="m-auto w-[min(92vw,360px)] rounded-2xl border border-line bg-card p-5 text-ink backdrop:bg-black/40"
+        className="m-auto max-h-[calc(100dvh-2rem)] w-[min(calc(100vw-2rem),360px)] overflow-y-auto rounded-2xl border border-line bg-card p-5 text-left text-base leading-normal text-ink backdrop:bg-black/40"
       >
         <div className="grid gap-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="font-medium">QR code{tag ? ` · ${tag}` : ""}</p>
               <p className="truncate font-mono text-xs text-teal">{url}</p>
             </div>
@@ -33,7 +33,7 @@ export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: 
               type="button"
               onClick={() => dialogRef.current?.close()}
               aria-label="Close"
-              className="text-muted hover:text-ink"
+              className="-mr-1 -mt-1 grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-ink"
             >
               ✕
             </button>
@@ -43,16 +43,19 @@ export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: 
             src={`${base}format=svg`}
             alt={`QR code for ${url}`}
             loading="lazy"
-            className="aspect-square w-full rounded-lg bg-white"
+            className="mx-auto block aspect-square w-full max-w-[min(100%,50dvh)] rounded-lg bg-white"
           />
           <p className="text-xs text-muted">Scans count as visits{tag ? ` tagged ${tag}` : ""}.</p>
-          <div className="flex flex-wrap gap-2">
-            <a href={`${base}format=png&download=1`} className="btn-primary">
+          <div className="grid grid-cols-2 gap-2">
+            <a
+              href={`${base}format=png&download=1`}
+              className="btn-primary inline-flex items-center justify-center whitespace-nowrap text-center no-underline"
+            >
               Download PNG
             </a>
             <a
               href={`${base}format=svg&download=1`}
-              className="rounded-full border border-line bg-paper px-4 py-1.5 text-sm hover:border-teal"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-line bg-paper px-4 py-2.5 text-sm font-semibold hover:border-teal"
             >
               Download SVG
             </a>
