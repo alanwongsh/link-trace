@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, sessionCookieOptions } from "@/lib/auth";
-import { deleteLink, findDestination, insertLink, saveTags } from "@/lib/data";
+import { deleteLink, findDestination, insertLink, saveTags, saveTarget } from "@/lib/data";
 import {
   createSlug,
   MAX_TAGS,
@@ -18,7 +18,7 @@ import {
   passwordMatches,
   expectedSessionToken,
 } from "@/lib/session";
-import type { CreateState, TagState } from "@/lib/types";
+import type { CreateState, EditState, LinkKind, TagState } from "@/lib/types";
 
 function safeNext(value: FormDataEntryValue | null): string {
   const next = String(value ?? "");
@@ -51,25 +51,28 @@ export async function logout(): Promise<void> {
   redirect("/login");
 }
 
+type Target = { kind: LinkKind; url: string | null; html: string | null };
+
+function parseTarget(formData: FormData): ({ ok: true } & Target) | { ok: false; error: string } {
+  if (formData.get("kind") === "page") {
+    const page = normalizePageHtml(String(formData.get("html") ?? ""));
+    if (!page.ok) return page;
+    return { ok: true, kind: "page", url: null, html: page.html };
+  }
+  const url = normalizeUrl(String(formData.get("url") ?? ""));
+  if (!url) return { ok: false, error: "Enter a full http or https URL." };
+  return { ok: true, kind: "redirect", url, html: null };
+}
+
 export async function createLink(
   _prev: CreateState,
   formData: FormData,
 ): Promise<CreateState> {
   await requireSession();
 
-  const kind = formData.get("kind") === "page" ? "page" : "redirect";
-  let url: string | null = null;
-  let html: string | null = null;
-  if (kind === "page") {
-    const page = normalizePageHtml(String(formData.get("html") ?? ""));
-    if (!page.ok) return { error: page.error, slug: "" };
-    html = page.html;
-  } else {
-    url = normalizeUrl(String(formData.get("url") ?? ""));
-    if (!url) {
-      return { error: "Enter a full http or https URL.", slug: "" };
-    }
-  }
+  const target = parseTarget(formData);
+  if (!target.ok) return { error: target.error, slug: "" };
+  const { kind, url, html } = target;
 
   const titleRaw = String(formData.get("title") ?? "").trim();
   const title = titleRaw ? titleRaw.slice(0, 120) : null;
@@ -134,6 +137,25 @@ export async function addTags(
   revalidatePath("/");
   revalidatePath(`/stats/${slug}`);
   return { error: "", added: parsed.tags.join(",") };
+}
+
+export async function editTarget(
+  _prev: EditState,
+  formData: FormData,
+): Promise<EditState> {
+  await requireSession();
+  const slug = normalizeSlug(String(formData.get("slug") ?? ""));
+  if (!slug) return { error: "That link could not be found.", savedAt: 0 };
+
+  const target = parseTarget(formData);
+  if (!target.ok) return { error: target.error, savedAt: 0 };
+
+  const saved = await saveTarget(slug, target);
+  if (!saved.ok) return { error: saved.message, savedAt: 0 };
+  if (!saved.data) return { error: "That link could not be found.", savedAt: 0 };
+  revalidatePath("/");
+  revalidatePath(`/stats/${slug}`);
+  return { error: "", savedAt: Date.now() };
 }
 
 export async function removeLink(formData: FormData): Promise<void> {

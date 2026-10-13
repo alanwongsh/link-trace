@@ -92,6 +92,26 @@ export async function deleteLink(slug: string): Promise<Result<null>> {
   }
 }
 
+// Returns false when no link has this slug.
+export async function saveTarget(
+  slug: string,
+  target: { kind: LinkKind; url: string | null; html: string | null },
+): Promise<Result<boolean>> {
+  const config = getDb();
+  if (!config.ok) return unavailable(config);
+
+  try {
+    const updated = await config.db
+      .update(links)
+      .set({ kind: target.kind, url: target.url, html: target.html })
+      .where(eq(links.slug, slug))
+      .returning({ id: links.id });
+    return { ok: true, data: updated.length > 0 };
+  } catch (error) {
+    return fail(error, "Could not save the destination.");
+  }
+}
+
 export type Destination = {
   id: string;
   kind: LinkKind;

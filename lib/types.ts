@@ -62,6 +62,11 @@ export type CreateState = {
   slug: string;
 };
 
+export type EditState = {
+  error: string;
+  savedAt: number;
+};
+
 export type TagState = {
   error: string;
   added: string;

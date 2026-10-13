@@ -1,14 +1,16 @@
+import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { AddTagsForm } from "@/components/add-tags-form";
 import { CopyButton } from "@/components/copy-button";
+import { EditTargetForm } from "@/components/edit-target-form";
 import { LinkTarget } from "@/components/link-target";
 import { LocalTime } from "@/components/local-time";
 import { PagePreview } from "@/components/page-preview";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
-import { loadDetail } from "@/lib/data";
+import { findDestination, loadDetail } from "@/lib/data";
 import {
   browserLabel,
   countryName,
@@ -54,6 +56,10 @@ export default async function StatsPage({
   if (!result.data) notFound();
 
   const detail = result.data;
+  const destination = await findDestination(detail.link.slug);
+  const target = destination.ok ? destination.data : null;
+  // Changes when the page is edited, so the preview iframe reloads.
+  const pageVersion = target?.html ? createHash("sha1").update(target.html).digest("hex").slice(0, 10) : "";
   const base = await origin();
   const shortUrl = `${base}/r/${detail.link.slug}`;
   const maxClicks = Math.max(...detail.daily.map((day) => day.clicks), 0);
@@ -78,7 +84,22 @@ export default async function StatsPage({
 
         {detail.link.kind === "page" ? (
           <section className="rounded-2xl border border-line bg-card p-5">
-            <PagePreview src={`/stats/${detail.link.slug}/preview`} title={`Preview of ${detail.link.slug}`} />
+            <PagePreview
+              key={pageVersion}
+              src={`/stats/${detail.link.slug}/preview?v=${pageVersion}`}
+              title={`Preview of ${detail.link.slug}`}
+            />
+          </section>
+        ) : null}
+
+        {target ? (
+          <section className="rounded-2xl border border-line bg-card p-5">
+            <EditTargetForm
+              slug={detail.link.slug}
+              kind={target.kind}
+              url={target.url}
+              html={target.html}
+            />
           </section>
         ) : null}
 
