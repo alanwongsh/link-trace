@@ -49,7 +49,7 @@ function FilterLabel({ id, label }: { id: string; label?: string }) {
   return (
     <label
       htmlFor={id}
-      className="mb-1.5 block text-xs font-semibold tracking-wide text-[var(--hub-muted-strong)]"
+      className="mb-1.5 block text-xs font-semibold tracking-wide text-muted"
     >
       {label}
     </label>
@@ -137,8 +137,8 @@ export function FilterSelect({
                   aria-selected={!value}
                   className={`flex w-full rounded-md px-2 py-1.5 text-left text-sm ${
                     !value
-                      ? "bg-[var(--diy-red)] font-semibold text-white"
-                      : "text-slate-700 hover:bg-[var(--diy-yellow-soft)] hover:text-slate-900"
+                      ? "bg-primary font-semibold text-white"
+                      : "text-slate-700 hover:bg-paper hover:text-slate-900"
                   }`}
                   onClick={() => {
                     onChange("");
@@ -156,7 +156,7 @@ export function FilterSelect({
                   <li
                     key={`group:${o.group}`}
                     role="presentation"
-                    className="px-2 pt-2 pb-0.5 text-xs font-semibold tracking-wide text-[var(--hub-muted-strong)] uppercase"
+                    className="px-2 pt-2 pb-0.5 text-xs font-semibold tracking-wide text-muted uppercase"
                   >
                     {o.group}
                   </li>
@@ -171,7 +171,7 @@ export function FilterSelect({
                     className={`flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-sm ${
                       active
                         ? "bg-primary font-semibold text-white"
-                        : "text-slate-700 hover:bg-[var(--diy-yellow-soft)] hover:text-slate-900"
+                        : "text-slate-700 hover:bg-paper hover:text-slate-900"
                     }`}
                     onClick={() => {
                       onChange(o.value);
@@ -268,7 +268,7 @@ export function FilterMultiSelect({
           <div className="mb-1 flex items-center justify-between gap-2 px-1 pb-1">
             <button
               type="button"
-              className="hub-text-button text-xs"
+              className="text-xs font-semibold text-primary hover:underline"
               onClick={() => onChange(options.map((o) => o.value))}
             >
               Select all
@@ -286,10 +286,10 @@ export function FilterMultiSelect({
               const checked = value.includes(o.value);
               return (
                 <li key={o.value}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--diy-yellow-soft)]">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-paper">
                     <input
                       type="checkbox"
-                      className="accent-[var(--diy-red)]"
+                      className="accent-primary"
                       checked={checked}
                       onChange={() => toggle(o.value)}
                     />
