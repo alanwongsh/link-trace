@@ -27,6 +27,9 @@ export default async function HomePage({
   const visible = user.isOrgAdmin
     ? (await listWorkspaces()).map((w) => ({ id: w.id, name: w.name }))
     : user.memberships.map((m) => ({ id: m.workspaceId, name: m.workspaceName }));
+  // "all" is a sentinel for the filter only; it is not a real workspace id.
+  const filterOptions = [{ id: "all", name: "All workspaces" }, ...visible];
+
   const current = params.ws && visible.some((w) => w.id === params.ws) ? params.ws : "all";
   const mine = params.mine === "1";
 
@@ -81,10 +84,9 @@ export default async function HomePage({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-serif text-2xl">Links</h2>
               <WorkspaceFilter
-                workspaces={visible}
+                workspaces={filterOptions}
                 current={current}
                 mine={mine}
-                allLabel={user.isOrgAdmin ? "All workspaces" : "All my workspaces"}
               />
             </div>
             {links.length === 0 ? (

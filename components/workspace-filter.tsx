@@ -1,21 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { type FilterOption, FilterSelect } from "./filter-select";
 
 // Dashboard filters, kept in the URL (?ws=…&mine=1) so a filtered view can be bookmarked or shared.
 export function WorkspaceFilter({
   workspaces,
   current,
   mine,
-  allLabel,
 }: {
   workspaces: { id: string; name: string }[];
   current: string;
   mine: boolean;
-  allLabel: string;
 }) {
   const router = useRouter();
-
   function go(ws: string, onlyMine: boolean) {
     const params = new URLSearchParams();
     if (ws !== "all") params.set("ws", ws);
@@ -26,19 +24,13 @@ export function WorkspaceFilter({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <select
+      <FilterSelect 
         value={current}
-        onChange={(event) => go(event.target.value, mine)}
-        className="field w-auto"
-        aria-label="Workspace"
-      >
-        <option value="all">{allLabel}</option>
-        {workspaces.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name}
-          </option>
-        ))}
-      </select>
+        onChange={(value) => go(value, mine)}
+        options={workspaces.map((workspace) => ({ label: workspace.name, value: workspace.id}))}
+        placeholder="Select your workspace"
+        fullWidth
+      />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={mine} onChange={(event) => go(current, event.target.checked)} />
         Created by me

@@ -8,6 +8,7 @@
   --color-card: #fffdf8;
   --color-teal: #0f5f5a;
   --color-warn: #8f3d2b;
+  --color-primary: var(--color-teal);
 }
 
 @theme inline {
@@ -24,6 +25,13 @@ body {
 
 ::selection {
   background: #d5ebe7;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--color-primary);
+}
+input[type="radio"] {
+  accent-color: var(--color-primary);
 }
 
 .field {
