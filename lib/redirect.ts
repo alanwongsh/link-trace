@@ -31,7 +31,8 @@ export async function traceAndRedirect(
   }
 
   const click = describeClick(request);
-  if (!isPrefetch(request)) {
+  // Next.js answers HEAD with the GET handler; scanners use HEAD to check links without opening them.
+  if (request.method !== "HEAD" && !isPrefetch(request)) {
     await insertClick(found.data.id, click, tag);
   }
 

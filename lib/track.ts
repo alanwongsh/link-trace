@@ -24,6 +24,13 @@ export function isPrefetch(request: Request): boolean {
   return purpose.toLowerCase().includes("prefetch");
 }
 
+// Browsers send Sec-Fetch-Mode: navigate when a person opens a link. Scripts, many link
+// scanners and fetch() calls omit it or send another mode. Safari before 16.4 never sends it,
+// so those rare clicks are stored but counted as bots.
+function isNavigation(request: Request): boolean {
+  return request.headers.get("sec-fetch-mode") === "navigate";
+}
+
 export function describeClick(request: Request): ClickDraft {
   const existing = readCookie(request, VISITOR_COOKIE);
   const visitorId = existing && UUID.test(existing) ? existing : crypto.randomUUID();
@@ -37,7 +44,7 @@ export function describeClick(request: Request): ClickDraft {
     country: headerValue(request, "x-vercel-ip-country"),
     region: headerValue(request, "x-vercel-ip-country-region"),
     city: headerValue(request, "x-vercel-ip-city"),
-    isBot: Boolean(userAgent && BOT_UA.test(userAgent)),
+    isBot: Boolean(userAgent && BOT_UA.test(userAgent)) || !isNavigation(request),
     isNewVisitor: visitorId !== existing,
   };
 }
