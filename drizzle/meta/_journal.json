@@ -29,6 +29,27 @@
       "when": 1791851966510,
       "tag": "0003_hosted_pages_views",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791944189698,
+      "tag": "0004_uuid_v7",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791944211268,
+      "tag": "0005_users_workspaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791944225396,
+      "tag": "0006_link_summaries_workspace",
+      "breakpoints": true
     }
   ]
 }

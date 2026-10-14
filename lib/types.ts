@@ -11,6 +11,10 @@ export type LinkSummary = {
   click_count: number;
   visitor_count: number;
   ip_count: number;
+  workspace_id: string;
+  workspace_name: string;
+  created_by: string | null;
+  created_by_name: string | null;
 };
 
 export type RecentClick = {
@@ -60,6 +64,12 @@ export type LinkDetail = {
 export type CreateState = {
   error: string;
   slug: string;
+};
+
+// For simple forms: one error or one success message.
+export type FormState = {
+  error: string;
+  ok: string;
 };
 
 export type EditState = {

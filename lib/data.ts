@@ -1,8 +1,8 @@
 import "server-only";
 
-import { desc, eq, sql } from "drizzle-orm";
+import { aliasedTable, and, desc, eq, getViewSelectedFields, inArray, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { clicks, linkSummaries, links } from "@/lib/db/schema";
+import { clicks, linkSummaries, links, users, workspaces } from "@/lib/db/schema";
 import type { ClickDraft } from "@/lib/track";
 import {
   schemaProblem,
@@ -43,16 +43,37 @@ function unavailable(config: { message: string; missingConfig?: boolean }): Fail
   return { ok: false, message: config.message, missingConfig: config.missingConfig };
 }
 
-export async function listLinks(): Promise<Result<LinkSummary[]>> {
+// workspaceIds: the workspaces to include, or "all" for org admins.
+export async function listLinks(filter: {
+  workspaceIds: string[] | "all";
+  createdBy?: string;
+}): Promise<Result<LinkSummary[]>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
+  if (filter.workspaceIds !== "all" && filter.workspaceIds.length === 0) return { ok: true, data: [] };
+
+  const conditions: SQL[] = [];
+  if (filter.workspaceIds !== "all") {
+    conditions.push(inArray(linkSummaries.workspace_id, filter.workspaceIds));
+  }
+  if (filter.createdBy) conditions.push(eq(linkSummaries.created_by, filter.createdBy));
 
   try {
     const rows = await config.db
-      .select()
+      .select({
+        ...getViewSelectedFields(linkSummaries),
+        workspace_name: workspaces.name,
+        created_by_name: users.name,
+      })
       .from(linkSummaries)
+      .innerJoin(workspaces, eq(workspaces.id, linkSummaries.workspace_id))
+      .leftJoin(users, eq(users.id, linkSummaries.created_by))
+      .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(linkSummaries.created_at));
-    return { ok: true, data: rows.map((link) => ({ ...link, tags: link.tags ?? [] })) };
+    return {
+      ok: true,
+      data: rows.map((link) => ({ ...link, tags: link.tags ?? [] })),
+    };
   } catch (error) {
     return fail(error, "Could not load links.");
   }
@@ -65,6 +86,8 @@ export async function insertLink(input: {
   html: string | null;
   title: string | null;
   tags: string[];
+  workspaceId: string;
+  createdBy: string;
 }): Promise<Result<{ slug: string }>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
@@ -96,6 +119,7 @@ export async function deleteLink(slug: string): Promise<Result<null>> {
 export async function saveTarget(
   slug: string,
   target: { kind: LinkKind; url: string | null; html: string | null },
+  updatedBy: string,
 ): Promise<Result<boolean>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
@@ -103,7 +127,13 @@ export async function saveTarget(
   try {
     const updated = await config.db
       .update(links)
-      .set({ kind: target.kind, url: target.url, html: target.html })
+      .set({
+        kind: target.kind,
+        url: target.url,
+        html: target.html,
+        updatedBy,
+        updatedAt: sql`now()`,
+      })
       .where(eq(links.slug, slug))
       .returning({ id: links.id });
     return { ok: true, data: updated.length > 0 };
@@ -114,6 +144,7 @@ export async function saveTarget(
 
 export type Destination = {
   id: string;
+  workspaceId: string;
   kind: LinkKind;
   url: string | null;
   html: string | null;
@@ -128,6 +159,7 @@ export async function findDestination(slug: string): Promise<Result<Destination 
     const [row] = await config.db
       .select({
         id: links.id,
+        workspaceId: links.workspaceId,
         kind: links.kind,
         url: links.url,
         html: links.html,
@@ -143,16 +175,64 @@ export async function findDestination(slug: string): Promise<Result<Destination 
   }
 }
 
-export async function saveTags(slug: string, tags: string[]): Promise<Result<null>> {
+export async function saveTags(slug: string, tags: string[], updatedBy: string): Promise<Result<null>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
 
   try {
-    await config.db.update(links).set({ tags }).where(eq(links.slug, slug));
+    await config.db
+      .update(links)
+      .set({ tags, updatedBy, updatedAt: sql`now()` })
+      .where(eq(links.slug, slug));
     return { ok: true, data: null };
   } catch (error) {
     return fail(error, "Could not save tags.");
   }
+}
+
+export async function moveLink(slug: string, workspaceId: string, updatedBy: string): Promise<Result<null>> {
+  const config = getDb();
+  if (!config.ok) return unavailable(config);
+
+  try {
+    await config.db
+      .update(links)
+      .set({ workspaceId, updatedBy, updatedAt: sql`now()` })
+      .where(eq(links.slug, slug));
+    return { ok: true, data: null };
+  } catch (error) {
+    return fail(error, "Could not move the link.");
+  }
+}
+
+const creator = aliasedTable(users, "creator");
+const editor = aliasedTable(users, "editor");
+
+// Who owns and last changed a link, for the stats page.
+export async function linkOwnership(slug: string): Promise<{
+  workspaceId: string;
+  workspaceName: string;
+  createdByName: string | null;
+  updatedByName: string | null;
+  updatedAt: string | null;
+} | null> {
+  const config = getDb();
+  if (!config.ok) return null;
+  const [row] = await config.db
+    .select({
+      workspaceId: links.workspaceId,
+      workspaceName: workspaces.name,
+      createdByName: creator.name,
+      updatedByName: editor.name,
+      updatedAt: links.updatedAt,
+    })
+    .from(links)
+    .innerJoin(workspaces, eq(workspaces.id, links.workspaceId))
+    .leftJoin(creator, eq(creator.id, links.createdBy))
+    .leftJoin(editor, eq(editor.id, links.updatedBy))
+    .where(eq(links.slug, slug))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function insertClick(

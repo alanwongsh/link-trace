@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { isAuthed } from "@/lib/auth";
+import { can, getCurrentUser } from "@/lib/auth";
 import { findDestination } from "@/lib/data";
 import { appOrigin } from "@/lib/origin";
 import { normalizeTag } from "@/lib/slug";
@@ -10,7 +10,8 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> },
 ) {
-  if (!(await isAuthed())) return new NextResponse("Sign in first.", { status: 401 });
+  const user = await getCurrentUser();
+  if (!user || user.mustChangePassword) return new NextResponse("Sign in first.", { status: 401 });
 
   const slug = (await context.params).slug.toLowerCase();
   const params = request.nextUrl.searchParams;
@@ -20,7 +21,9 @@ export async function GET(
 
   const found = await findDestination(slug);
   if (!found.ok) return new NextResponse(found.message, { status: 500 });
-  if (!found.data) return new NextResponse("Link not found.", { status: 404 });
+  if (!found.data || !can(user, found.data.workspaceId, "viewer")) {
+    return new NextResponse("Link not found.", { status: 404 });
+  }
   if (tag && !found.data.tags.includes(tag)) {
     return new NextResponse("This platform tag is not on the link.", { status: 404 });
   }

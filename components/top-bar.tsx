@@ -1,26 +1,42 @@
+import { getCurrentUser } from "@/lib/auth";
 import { logout } from "@/lib/actions";
 
-export function TopBar({
-  authed,
-  meta,
-}: {
-  authed: boolean;
-  meta?: string;
-}) {
+export async function TopBar({ meta }: { meta?: string }) {
+  const user = await getCurrentUser();
+
   return (
     <header className="border-b border-line">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-5">
-        <a href="/" className="font-serif text-2xl tracking-tight">
-          Link Trace
-        </a>
-        <div className="flex items-center gap-4 text-sm text-muted">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-5">
+        <div className="flex items-baseline gap-5">
+          <a href="/" className="font-serif text-2xl tracking-tight">
+            Link Trace
+          </a>
+          {user && !user.mustChangePassword ? (
+            <nav className="flex gap-4 text-sm text-muted">
+              <a href="/" className="transition hover:text-ink">
+                Links
+              </a>
+              {user.isOrgAdmin ? (
+                <a href="/admin/users" className="transition hover:text-ink">
+                  Admin
+                </a>
+              ) : null}
+            </nav>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
           {meta ? <span>{meta}</span> : null}
-          {authed ? (
-            <form action={logout}>
-              <button type="submit" className="transition hover:text-ink">
-                Sign out
-              </button>
-            </form>
+          {user ? (
+            <>
+              <a href="/account" className="transition hover:text-ink" title={user.email}>
+                {user.name}
+              </a>
+              <form action={logout}>
+                <button type="submit" className="transition hover:text-ink">
+                  Sign out
+                </button>
+              </form>
+            </>
           ) : null}
         </div>
       </div>

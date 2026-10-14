@@ -13,12 +13,15 @@ export function TargetFields({
   initialHtml = "",
   idPrefix = "",
   onKindChange,
+  allowPage = true,
 }: {
   initialKind?: LinkKind;
   initialUrl?: string;
   initialHtml?: string;
   idPrefix?: string;
   onKindChange?: (kind: LinkKind) => void;
+  // False hides the hosted page option (only workspace owners may publish pages).
+  allowPage?: boolean;
 }) {
   const [kind, setKind] = useState<LinkKind>(initialKind);
   const [url, setUrl] = useState(initialUrl);
@@ -31,6 +34,14 @@ export function TargetFields({
     const timer = setTimeout(() => setPreviewHtml(html), 400);
     return () => clearTimeout(timer);
   }, [html]);
+
+  // Losing permission (e.g. picking another workspace) falls back to a redirect.
+  useEffect(() => {
+    if (!allowPage && kind === "page") {
+      setKind("redirect");
+      onKindChange?.("redirect");
+    }
+  }, [allowPage, kind, onKindChange]);
 
   function chooseKind(next: LinkKind) {
     setKind(next);
@@ -55,8 +66,13 @@ export function TargetFields({
         <legend className="mb-2 text-sm font-medium">Opens</legend>
         <div className="flex flex-wrap gap-2">
           <KindOption value="redirect" current={kind} onChange={chooseKind} label="Another website" />
-          <KindOption value="page" current={kind} onChange={chooseKind} label="A page hosted here" />
+          {allowPage ? (
+            <KindOption value="page" current={kind} onChange={chooseKind} label="A page hosted here" />
+          ) : null}
         </div>
+        {!allowPage ? (
+          <p className="text-xs text-muted">Only workspace owners can publish hosted pages.</p>
+        ) : null}
       </fieldset>
       {kind === "redirect" ? (
         <div className="grid gap-2">

@@ -16,7 +16,28 @@ Pages are served with a `Content-Security-Policy: sandbox` header, which gives t
 - Referrer
 - Country, region, and city from Vercel’s `x-vercel-ip-*` headers (filled in after deploy, not on localhost)
 
-Known bots are stored and tagged, and left out of the headline counts. The dashboard is locked with `ADMIN_PASSWORD`. The redirect itself is public.
+Known bots are stored and tagged, and left out of the headline counts. The dashboard needs a sign-in. The redirect itself is public.
+
+## Users and workspaces
+
+Everyone signs in with their own email and password. Links belong to a **workspace** (a team), and people see only the links in their workspaces.
+
+| Role | Can |
+|---|---|
+| Viewer | See links, stats, and QR codes |
+| Editor | Also create links and add tags |
+| Owner | Also change destinations, publish hosted pages, delete links, and move links between workspaces |
+| Org admin | Owner in every workspace, plus manage users and workspaces under **Admin** |
+
+**First run:** open the app and you are sent to `/setup`. Enter the current `ADMIN_PASSWORD` and create your org admin account. Existing links go into a **Default** workspace you own. `ADMIN_PASSWORD` is not used after that.
+
+**Adding people:** Admin → Users → Add a user, with a temporary password you give them. They must change it at first sign-in. Then add them to workspaces.
+
+**Locked out:** five wrong passwords lock an account for 15 minutes. An org admin can reset it from the user's page. If no admin can sign in, run `npm run user:reset -- you@example.com --admin` on a machine with the database URL; it prints a temporary password.
+
+**Audit log:** Admin → Audit log shows sign-ins and every change to links, users, and workspaces.
+
+Sessions last 30 days. Only a hash of each session token is stored. Disabling a user or resetting their password signs them out everywhere.
 
 ## Database
 

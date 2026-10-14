@@ -4,33 +4,84 @@ import { useActionState, useState } from "react";
 import { createLink } from "@/lib/actions";
 import { TagField } from "@/components/tag-field";
 import { TargetFields } from "@/components/target-fields";
+import type { Role } from "@/lib/roles";
 import type { CreateState, LinkKind } from "@/lib/types";
+
+export type WritableWorkspace = { id: string; name: string; role: Role };
 
 const initial: CreateState = { error: "", slug: "" };
 
-export function CreateLinkForm() {
+// workspaces: where the user can create links (editor or owner).
+export function CreateLinkForm({
+  workspaces,
+  defaultWorkspaceId,
+}: {
+  workspaces: WritableWorkspace[];
+  defaultWorkspaceId: string;
+}) {
   const [state, action, pending] = useActionState(createLink, initial);
+  // Kept outside the remounting fields so it survives a successful create.
+  const [workspaceId, setWorkspaceId] = useState(defaultWorkspaceId);
 
-  return <LinkFormFields key={state.slug || "new"} state={state} action={action} pending={pending} />;
+  return (
+    <LinkFormFields
+      key={state.slug || "new"}
+      state={state}
+      action={action}
+      pending={pending}
+      workspaces={workspaces}
+      workspaceId={workspaceId}
+      onWorkspaceChange={setWorkspaceId}
+    />
+  );
 }
 
 function LinkFormFields({
   state,
   action,
   pending,
+  workspaces,
+  workspaceId,
+  onWorkspaceChange,
 }: {
   state: CreateState;
   action: (formData: FormData) => void;
   pending: boolean;
+  workspaces: WritableWorkspace[];
+  workspaceId: string;
+  onWorkspaceChange: (id: string) => void;
 }) {
   const [kind, setKind] = useState<LinkKind>("redirect");
+  const role = workspaces.find((w) => w.id === workspaceId)?.role;
 
   return (
     <form
       action={action}
       className="grid gap-3 rounded-2xl border border-line bg-card p-5 shadow-[0_1px_0_rgba(28,25,22,0.04)]"
     >
-      <TargetFields onKindChange={setKind} />
+      {workspaces.length > 1 ? (
+        <div className="grid gap-2">
+          <label htmlFor="workspace_id" className="text-sm font-medium">
+            Workspace
+          </label>
+          <select
+            id="workspace_id"
+            name="workspace_id"
+            value={workspaceId}
+            onChange={(event) => onWorkspaceChange(event.target.value)}
+            className="field"
+          >
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <input type="hidden" name="workspace_id" value={workspaceId} />
+      )}
+      <TargetFields onKindChange={setKind} allowPage={role === "owner"} />
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-2">
           <label htmlFor="title" className="text-sm font-medium">

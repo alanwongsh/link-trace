@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { notFound } from "next/navigation";
+import { ActionForm } from "@/components/action-form";
 import { AddTagsForm } from "@/components/add-tags-form";
 import { CopyButton } from "@/components/copy-button";
 import { EditTargetForm } from "@/components/edit-target-form";
@@ -10,7 +11,10 @@ import { QrButton } from "@/components/qr-button";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
-import { findDestination, loadDetail } from "@/lib/data";
+import { listWorkspaces } from "@/lib/accounts";
+import { moveLinkToWorkspace } from "@/lib/actions";
+import { can, requireUser } from "@/lib/auth";
+import { findDestination, linkOwnership, loadDetail } from "@/lib/data";
 import { appOrigin } from "@/lib/origin";
 import {
   browserLabel,
@@ -28,12 +32,13 @@ export default async function StatsPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  const user = await requireUser();
   const { slug } = await params;
   const result = await loadDetail(slug);
   if (!result.ok) {
     return (
       <>
-        <TopBar authed />
+        <TopBar />
         <main className="mx-auto max-w-5xl px-6 py-10">
           {result.missingConfig || result.missingSchema ? (
             <SetupGuide message={result.message} />
@@ -47,6 +52,20 @@ export default async function StatsPage({
   if (!result.data) notFound();
 
   const detail = result.data;
+  // Links outside the user's workspaces look the same as missing ones.
+  const ownership = await linkOwnership(detail.link.slug);
+  if (!ownership || !can(user, ownership.workspaceId, "viewer")) notFound();
+  const canEdit = can(user, ownership.workspaceId, "editor");
+  const isOwner = can(user, ownership.workspaceId, "owner");
+  const moveTargets = isOwner
+    ? (user.isOrgAdmin
+        ? await listWorkspaces()
+        : user.memberships
+            .filter((m) => m.role === "owner")
+            .map((m) => ({ id: m.workspaceId, name: m.workspaceName }))
+      ).filter((w) => w.id !== ownership.workspaceId)
+    : [];
+
   const destination = await findDestination(detail.link.slug);
   const target = destination.ok ? destination.data : null;
   // Changes when the page is edited, so the preview iframe reloads.
@@ -57,7 +76,7 @@ export default async function StatsPage({
 
   return (
     <>
-      <TopBar authed meta={`${detail.unique_visitors} visitors`} />
+      <TopBar meta={`${detail.unique_visitors} visitors`} />
       <main className="mx-auto grid max-w-5xl gap-8 px-6 py-10">
         <div>
           <a href="/" className="text-sm text-teal">
@@ -71,6 +90,17 @@ export default async function StatsPage({
             <CopyButton value={shortUrl} />
           </p>
           <LinkTarget slug={detail.link.slug} kind={detail.link.kind} url={detail.link.url} />
+          <p className="mt-2 text-sm text-muted">
+            {ownership.workspaceName}
+            {ownership.createdByName ? ` · created by ${ownership.createdByName}` : ""}
+            {ownership.updatedAt ? (
+              <>
+                {" · last changed "}
+                {ownership.updatedByName ? `by ${ownership.updatedByName} ` : ""}
+                <LocalTime iso={ownership.updatedAt} />
+              </>
+            ) : null}
+          </p>
         </div>
 
         {detail.link.kind === "page" ? (
@@ -83,7 +113,7 @@ export default async function StatsPage({
           </section>
         ) : null}
 
-        {target ? (
+        {target && isOwner ? (
           <section className="rounded-2xl border border-line bg-card p-5">
             <EditTargetForm
               slug={detail.link.slug}
@@ -126,7 +156,7 @@ export default async function StatsPage({
               visitors={detail.untagged_visitors}
             />
           </ul>
-          <AddTagsForm slug={detail.link.slug} />
+          {canEdit ? <AddTagsForm slug={detail.link.slug} /> : null}
         </section>
 
         <section className="rounded-2xl border border-line bg-card p-5">
@@ -218,6 +248,27 @@ export default async function StatsPage({
             </div>
           )}
         </section>
+        {moveTargets.length > 0 ? (
+          <section className="rounded-2xl border border-line bg-card p-5">
+            <h2 className="font-serif text-2xl">Move to another workspace</h2>
+            <p className="mt-1 text-sm text-muted">
+              The short link, tags, and visit history stay the same. Only who can see and manage it changes.
+            </p>
+            <ActionForm action={moveLinkToWorkspace} submit="Move link" pending="Moving…" variant="secondary" className="mt-4 grid gap-3">
+              <input type="hidden" name="slug" value={detail.link.slug} />
+              <select name="workspace_id" required defaultValue="" className="field w-auto min-w-48" aria-label="Workspace">
+                <option value="" disabled>
+                  Choose a workspace
+                </option>
+                {moveTargets.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </ActionForm>
+          </section>
+        ) : null}
       </main>
     </>
   );

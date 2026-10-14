@@ -1,30 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  SESSION_COOKIE,
-  expectedSessionToken,
-  safeEqual,
-} from "@/lib/session";
+import { SESSION_COOKIE } from "@/lib/session";
 
-export async function middleware(request: NextRequest) {
-  const token = request.cookies.get(SESSION_COOKIE)?.value ?? "";
-  const expected = await expectedSessionToken();
-  const authed = Boolean(expected && token && safeEqual(token, expected));
+// A quick gate only: sends visitors without a session cookie to sign in. Pages, actions, and
+// routes still check the session against the database (requireUser), since the cookie may be stale.
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === "/login" || pathname === "/setup") return NextResponse.next();
 
-  if (pathname === "/login") {
-    if (authed) return NextResponse.redirect(new URL("/", request.url));
-    return NextResponse.next();
-  }
-
-  if (!authed) {
+  if (!request.cookies.get(SESSION_COOKIE)?.value) {
     const url = new URL("/login", request.url);
-    url.searchParams.set("next", pathname);
+    if (pathname !== "/") url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/", "/login", "/stats/:path*"],
+  matcher: ["/", "/login", "/setup", "/stats/:path*", "/admin/:path*", "/account/:path*"],
 };
