@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { findDestination, insertClick } from "@/lib/data";
 import { hostedPageResponse } from "@/lib/hosted-page";
 import { VISITOR_COOKIE } from "@/lib/session";
@@ -32,8 +32,10 @@ export async function traceAndRedirect(
 
   const click = describeClick(request);
   // Next.js answers HEAD with the GET handler; scanners use HEAD to check links without opening them.
+  // The click is saved after the response is sent, so a slow database never delays the visitor.
   if (request.method !== "HEAD" && !isPrefetch(request)) {
-    await insertClick(found.data.id, click, tag);
+    const linkId = found.data.id;
+    after(() => insertClick(linkId, click, tag));
   }
 
   const { kind, url, html } = found.data;

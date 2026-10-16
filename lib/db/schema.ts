@@ -11,8 +11,11 @@ import {
   pgView,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+// Relative, so drizzle-kit can load this file without the @/ alias.
+import { PARAMETER_TYPES } from "../parameters";
 
 // Time-ordered UUIDs (v7). uuid_v7() is created in drizzle/0004_uuid_v7.sql; Postgres 18 adds a built-in uuidv7().
 const uuidV7 = sql`uuid_v7()`;
@@ -154,6 +157,63 @@ export const clicks = pgTable(
       foreignColumns: [links.id],
     }).onDelete("cascade"),
     index("clicks_link_id_clicked_at_idx").on(table.linkId, table.clickedAt.desc()),
+  ],
+);
+
+
+// A workspace's own labels for placements, such as store_code or booth_id. Values are rows, never columns.
+// Parameters are archived (is_active = false), not deleted, so old placements and scans keep their meaning.
+export const trackingParameters = pgTable(
+  "tracking_parameters",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Fixed after creation; reports and imports refer to it.
+    key: text("key").notNull(),
+    description: text("description"),
+    fieldType: text("field_type", { enum: PARAMETER_TYPES }).notNull(),
+    isRequired: boolean("is_required").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }),
+  },
+  (table) => [
+    uniqueIndex("tracking_parameters_workspace_key").on(table.workspaceId, table.key),
+    check("tracking_parameters_key_format", sql`${table.key} ~ '^[a-z][a-z0-9_]{0,39}$'`),
+    check("tracking_parameters_field_type_check", sql`${table.fieldType} in ('text', 'dropdown')`),
+  ],
+);
+
+// Predefined values of a dropdown parameter. value is the code people import and report on.
+export const trackingParameterOptions = pgTable(
+  "tracking_parameter_options",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    parameterId: uuid("parameter_id").notNull(),
+    value: text("value").notNull(),
+    label: text("label"),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }),
+  },
+  (table) => [
+    // Named explicitly: the generated name is over Postgres's 63-character limit.
+    foreignKey({
+      name: "tracking_parameter_options_parameter_id_fkey",
+      columns: [table.parameterId],
+      foreignColumns: [trackingParameters.id],
+    }).onDelete("cascade"),
+    // Codes are unique regardless of case, but keep the case they were entered in.
+    uniqueIndex("tracking_parameter_options_value").on(table.parameterId, sql`lower(${table.value})`),
   ],
 );
 

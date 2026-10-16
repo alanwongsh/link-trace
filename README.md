@@ -76,6 +76,29 @@ npm run dev
 
 Fill in `DATABASE_URL` and `ADMIN_PASSWORD`.
 
+## Tests
+
+```bash
+npm test
+```
+
+The tests rebuild their own database from `drizzle/` on every run and never use `DATABASE_URL`. They read `TEST_DATABASE_URL` from `.env.test.local` (not committed) and refuse any database that is not local or has no "test" in its name.
+
+```
+TEST_DATABASE_URL=postgresql://postgres:<password>@localhost:5432/link_trace_test
+```
+
+To create that database with a local Postgres install:
+
+```bash
+initdb -D <data-dir> -U postgres --pwprompt --auth=scram-sha-256
+# in <data-dir>/postgresql.conf: listen_addresses = 'localhost'
+pg_ctl -D <data-dir> -l <data-dir>/server.log start
+createdb -h localhost -U postgres link_trace_test
+```
+
+Run `npm test` before every deploy. The tests cover today's behaviour: links with several tags, `/r/<slug>` and `/r/<slug>/<tag>` redirects and click recording, workspace roles, and tag stats.
+
 ## Vercel
 
 1. Import this repo.

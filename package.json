@@ -9,7 +9,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "user:reset": "node scripts/reset-password.ts"
+    "user:reset": "node scripts/reset-password.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "d3-geo": "^3.1.1",
@@ -36,6 +37,7 @@
     "@types/topojson-specification": "^1.0.5",
     "drizzle-kit": "^0.31.11",
     "tailwindcss": "^4.1.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
   }
 }

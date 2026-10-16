@@ -4,6 +4,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { userForSession, type SessionUser } from "@/lib/accounts";
+import { PERMISSIONS, type Permission } from "@/lib/permissions";
 import { atLeast, type Role } from "@/lib/roles";
 import { SESSION_COOKIE } from "@/lib/session";
 
@@ -43,6 +44,10 @@ export function roleIn(user: SessionUser, workspaceId: string): Role | null {
 
 export function can(user: SessionUser, workspaceId: string, min: Role): boolean {
   return atLeast(roleIn(user, workspaceId), min);
+}
+
+export function allowed(user: SessionUser, workspaceId: string, permission: Permission): boolean {
+  return can(user, workspaceId, PERMISSIONS[permission]);
 }
 
 export function sessionCookieOptions(maxAge: number) {
