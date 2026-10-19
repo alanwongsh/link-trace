@@ -4,7 +4,8 @@ import type { ClickJob } from "./catalog.ts";
 
 // Same rules as direct saving (insertClick in lib/data.ts): a tag visit without a placement counts
 // for the placement made from that tag. on conflict skips clicks a retried batch already saved,
-// and clicks whose link was deleted while they waited are dropped.
+// and clicks whose link was deleted while they waited are dropped. JSON goes as text, then cast,
+// so it reads the same through the app's client (whose JSON encoding drizzle turns off) and others.
 export async function insertClicks(sql: Sql, clicks: ClickJob[]): Promise<number> {
   if (clicks.length === 0) return 0;
   const result = await sql`
@@ -16,7 +17,7 @@ export async function insertClicks(sql: Sql, clicks: ClickJob[]): Promise<number
           then (select p.id from placements p where p.link_id = c."linkId" and p.legacy_tag = c.tag) end
       ),
       c."clickedAt"
-    from jsonb_to_recordset(${sql.json(clicks)}) as c(
+    from jsonb_to_recordset(${JSON.stringify(clicks)}::text::jsonb) as c(
       id uuid, "linkId" uuid, "visitorId" text, ip text, "userAgent" text, referrer text, country text, region text,
       city text, "isBot" boolean, tag text, "placementId" uuid, "clickedAt" timestamptz
     )

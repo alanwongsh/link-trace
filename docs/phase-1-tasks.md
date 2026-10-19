@@ -88,9 +88,9 @@ None at the moment.
 | A link with placements cannot be moved to another workspace | Its labels use the original workspace's parameters |
 | Placements are created by editors and owners (`placements.manage`) | Same as creating links and adding tags today |
 | The create-link form has no tag field; it offers an optional first placement instead. Tags can still be added on each link's page | New QR codes and links use placements; existing tag links, addresses and stats are unchanged |
-| Background jobs run on pg-boss in the same Postgres, behind one job catalog (`lib/jobs/catalog.ts`) and a driver interface | No Redis to run now; moving to BullMQ later means one new driver, not changes across the app |
+| Background jobs go through one job catalog (`lib/jobs/catalog.ts`) and one setting, `QUEUE_DRIVER`: `inline` (default, runs in the app after the response, works on Vercel), then `pgboss` (Postgres queue + `npm run worker`), then later `bullmq` (Redis) | The PoC needs no worker or Redis; each step up changes the setting and adds a driver, not the app |
 | Bulk uploads keep their zip for 7 days, then only the placements remain | Zips are stored in the database until file storage (S3) is set up |
-| Clicks are saved directly unless `CLICK_INGEST=queue` | Queuing a click on pg-boss is itself a database write; it pays off once the queue moves to Redis |
+| Clicks are a job like any other (`record-click`): saved right after the redirect with `inline`, in worker batches with a queue | One path for every job; with a worker queue a click that cannot be queued is saved directly |
 | A parameter's key and field type are fixed once created; its name, description and required setting can change. An option's value (code) is fixed; its label can change. To fix a wrong code, deactivate it and add a new one | Renaming must not break existing placements or reports |
 | Parameters and options are deactivated, never deleted, from the app | Keeps history intact without checking whether something was used |
 | Limits: 30 parameters per workspace, 5,000 options per parameter, 2,000 options per import | Covers a full store list while keeping pages and imports fast |

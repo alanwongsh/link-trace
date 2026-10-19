@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { audit } from "@/lib/accounts";
 import { allowed, can, requireUser } from "@/lib/auth";
 import { insertBulkJob, markBulkJobFailed } from "@/lib/bulk-data";
@@ -8,7 +9,7 @@ import { parseBulkCsv } from "@/lib/bulk-parse";
 import { findDestination } from "@/lib/data";
 import { appOrigin } from "@/lib/origin";
 import { parameterDefinitions } from "@/lib/parameter-data";
-import { enqueue } from "@/lib/queue";
+import { enqueue, jobsRunInline } from "@/lib/queue";
 import { normalizeSlug } from "@/lib/slug";
 import type { BulkState } from "@/lib/types";
 
@@ -59,14 +60,21 @@ export async function bulkPlacements(_prev: BulkState, formData: FormData): Prom
     baseUrl: await appOrigin(),
     createdBy: user.id,
   });
-  try {
-    // One queued job per upload, even if this were called twice.
-    await enqueue("bulk-placements", { bulkJobId: jobId }, { singletonKey: jobId });
-  } catch (error) {
-    console.error("Could not queue the bulk upload:", error instanceof Error ? error.message : error);
-    await markBulkJobFailed(jobId, "Could not be queued. Try again.");
-    return { ...state, error: "The upload could not be queued. Try again shortly." };
-  }
+  // After the response, so the page shows the upload straight away and follows its progress.
+  // With the inline queue this does the work here; with a worker queue it only hands it over.
+  after(async () => {
+    try {
+      // One job per upload, even if this were called twice.
+      await enqueue("bulk-placements", { bulkJobId: jobId }, { singletonKey: jobId });
+    } catch (error) {
+      console.error("Bulk upload failed:", error instanceof Error ? error.message : error);
+      // runBulkJob marks its own failures; this covers a queue that could not take the job.
+      await markBulkJobFailed(jobId, "Could not be completed. Try again.").catch(() => {});
+      return;
+    }
+    // Inline has no hourly schedule, so each upload also clears expired zips.
+    if (jobsRunInline()) await enqueue("bulk-cleanup", {}).catch(() => {});
+  });
   await audit({
     actor: { id: user.id, email: user.email },
     action: "placement.bulk_queued",

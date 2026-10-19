@@ -78,15 +78,17 @@ Fill in `DATABASE_URL` and `ADMIN_PASSWORD`.
 
 ## Background jobs
 
-```bash
-npm run worker
-```
+Clicks and bulk QR uploads are background jobs, listed in `lib/jobs/catalog.ts` and added with `enqueue(name, data)` (`lib/queue.ts`). `QUEUE_DRIVER` decides where they run:
 
-Keep one worker running next to the app. It runs every job in `lib/jobs/catalog.ts`: bulk placement uploads (placements plus a zip of QR codes and `placements.csv`, kept 7 days), hourly removal of expired zips, and queued clicks when `CLICK_INGEST=queue`. Uploads wait as "Waiting…" until a worker picks them up. Several workers can run at once.
+| `QUEUE_DRIVER` | Where jobs run | Needs |
+|---|---|---|
+| `inline` (default) | In the app, right after the response (`after()`) | Nothing; works on Vercel |
+| `pgboss` | In `npm run worker`, queued in this Postgres (schema `pgboss`) | A worker on a server or container; set the same value for the app and the worker |
+| `bullmq` (later) | In the worker, queued in Redis | A `BullMqDriver` (`lib/jobs/driver.ts`) and `REDIS_URL` |
 
-Jobs use pg-boss, which keeps its queue in the same Postgres (schema `pgboss`, created on first start). The app adds jobs with `enqueue(name, data)` from `lib/queue.ts`. To add a job: an entry in `lib/jobs/catalog.ts` and a handler in `lib/jobs/handlers.ts`. To move to another queue such as BullMQ, implement `QueueDriver` (`lib/jobs/driver.ts`) and select it with `QUEUE_DRIVER`.
+Bulk uploads make the placements and a zip of QR codes plus `placements.csv`, kept 7 days. Inline uploads are limited by the host's request time (on Vercel, `maxDuration` up to the plan's limit), so very large PNG uploads are better with a worker. With a worker queue, uploads wait as "Waiting…" until a worker picks them up; several workers can run at once. Through Supabase, give the worker the session pooler (port 5432).
 
-Serverless hosting (Vercel) cannot run the worker; run it on a server or container. Through Supabase, give the worker the session pooler (port 5432).
+To add a job: an entry in `lib/jobs/catalog.ts` and a handler in `lib/jobs/handlers.ts`. To change queue: let the current one empty, then switch `QUEUE_DRIVER` for the app and the worker.
 
 ## Turning tags into placements
 

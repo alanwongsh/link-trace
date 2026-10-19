@@ -24,6 +24,7 @@ import { placementFields } from "@/lib/parameter-data";
 import { setPlacementStatus } from "@/lib/placement-actions";
 import { listPlacements } from "@/lib/placement-data";
 import { listBulkJobs } from "@/lib/bulk-data";
+import { jobsRunInline } from "@/lib/queue";
 import { appOrigin } from "@/lib/origin";
 import {
   browserLabel,
@@ -34,6 +35,8 @@ import {
 } from "@/lib/track";
 
 export const dynamic = "force-dynamic";
+// Bulk uploads run after this page's actions respond; Vercel caps this at the plan's limit.
+export const maxDuration = 300;
 
 export default async function StatsPage({
   params,
@@ -88,9 +91,15 @@ export default async function StatsPage({
   ]);
   const bulkRunning = bulkJobs.some((job) => job.status === "queued" || job.status === "running");
   // A job still queued after two minutes usually means no worker is running.
-  const stalled = bulkJobs.some(
-    (job) => job.status === "queued" && Date.now() - new Date(job.createdAt).getTime() > 2 * 60 * 1000,
-  );
+  // Inline uploads run in the request; one still unfinished after 10 minutes was cut off by the
+  // host's time limit. With a worker queue, one still waiting after 2 minutes means no worker.
+  const inline = jobsRunInline();
+  const stalled = bulkJobs.some((job) => {
+    const age = Date.now() - new Date(job.createdAt).getTime();
+    return inline
+      ? (job.status === "queued" || job.status === "running") && age > 10 * 60 * 1000
+      : job.status === "queued" && age > 2 * 60 * 1000;
+  });
 
   return (
     <>
@@ -280,8 +289,17 @@ export default async function StatsPage({
               <h3 className="mb-3 text-lg font-semibold">Bulk uploads</h3>
               {stalled ? (
                 <p className="mb-3 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn" role="alert">
-                  An upload has been waiting for over two minutes. The background worker may not be running; start it
-                  with <span className="font-mono">npm run worker</span>.
+                  {inline ? (
+                    <>
+                      An upload stopped before finishing, probably at the server&apos;s time limit. Try fewer rows or SVG
+                      files.
+                    </>
+                  ) : (
+                    <>
+                      An upload has been waiting for over two minutes. The background worker may not be running; start
+                      it with <span className="font-mono">npm run worker</span>.
+                    </>
+                  )}
                 </p>
               ) : null}
               <ul className="grid gap-2">

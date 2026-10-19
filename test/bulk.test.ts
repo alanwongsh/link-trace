@@ -31,7 +31,13 @@ vi.mock("@/lib/origin", () => ({ appOrigin: async () => "https://lt.example" }))
 const queued = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/queue", () => ({
   enqueue: async (name: string, data: { bulkJobId: string }) => void queued.push(`${name}:${data.bulkJobId}`),
+  jobsRunInline: () => false,
 }));
+// after() needs a Next.js request scope; run the task straight away instead.
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return { ...actual, after: async (task: () => unknown) => void (await task()) };
+});
 
 const { bulkPlacements } = await import("@/lib/bulk-actions");
 const { createParameter, importOptions } = await import("@/lib/parameter-actions");

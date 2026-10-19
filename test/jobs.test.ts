@@ -5,8 +5,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { clicks, links, placements } from "@/lib/db/schema";
 import { JOB_NAMES, type ClickJob } from "@/lib/jobs/catalog";
 import { insertClicks } from "@/lib/jobs/click-job";
-import { createDriver, describeQueue } from "@/lib/jobs/create-driver";
+import { createDriver, describeQueue, queueKind } from "@/lib/jobs/create-driver";
 import { jobHandlers } from "@/lib/jobs/handlers";
+import { InlineDriver } from "@/lib/jobs/inline-driver";
 import { PgBossDriver } from "@/lib/jobs/pgboss-driver";
 import { uuidv7 } from "@/lib/uuid7";
 import { createWorkspace, db, resetData } from "./helpers";
@@ -22,12 +23,13 @@ vi.mock("next/server", async (importOriginal) => {
     },
   };
 });
-const queue = vi.hoisted(() => ({ sent: [] as { name: string; data: unknown }[], fail: false }));
+const queue = vi.hoisted(() => ({ sent: [] as { name: string; data: unknown }[], fail: false, inline: false }));
 vi.mock("@/lib/queue", () => ({
   enqueue: async (name: string, data: unknown) => {
     if (queue.fail) throw new Error("queue down");
     queue.sent.push({ name, data });
   },
+  jobsRunInline: () => queue.inline,
 }));
 
 const { GET: tagRoute } = await import("@/app/r/[slug]/[tag]/route");
@@ -41,6 +43,7 @@ beforeEach(async () => {
   await resetData();
   queue.sent.length = 0;
   queue.fail = false;
+  queue.inline = false;
   const workspaceId = await createWorkspace();
   [{ id: linkId }] = await db()
     .insert(links)
@@ -49,7 +52,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  delete process.env.CLICK_INGEST;
+  vi.restoreAllMocks();
 });
 
 function click(overrides: Partial<ClickJob> = {}): ClickJob {
@@ -72,18 +75,37 @@ function click(overrides: Partial<ClickJob> = {}): ClickJob {
 }
 
 describe("choosing the queue", () => {
-  it("uses pg-boss by default, with the worker preferring the migration address", () => {
-    expect(createDriver("sender", { DATABASE_URL: "postgresql://app@host/db" })).toBeInstanceOf(PgBossDriver);
-    expect(
-      describeQueue({ DATABASE_URL: "postgresql://u:secret@pooler:6543/db", DATABASE_MIGRATION_URL: "postgresql://u:secret@pooler:5432/db" }),
-    ).toBe("pgboss on pooler:5432");
+  const fakeSql = () => sql;
+
+  it("runs jobs inline by default, and needs no worker then", () => {
+    expect(queueKind({})).toBe("inline");
+    expect(createDriver("sender", {}, fakeSql)).toBeInstanceOf(InlineDriver);
+    expect(() => createDriver("worker", {})).toThrow("QUEUE_DRIVER=inline runs jobs in the app, so no worker is needed.");
+    expect(describeQueue({ DATABASE_URL: "postgresql://u:secret@db:5432/x" })).toBe("inline on db:5432");
   });
 
-  it("rejects an unknown driver and a missing address", () => {
+  it("uses pg-boss when asked, with the worker preferring the migration address", () => {
+    expect(createDriver("sender", { QUEUE_DRIVER: "pgboss", DATABASE_URL: "postgresql://app@host/db" })).toBeInstanceOf(PgBossDriver);
+    expect(
+      describeQueue({
+        QUEUE_DRIVER: "pgboss",
+        DATABASE_URL: "postgresql://u:secret@pooler:6543/db",
+        DATABASE_MIGRATION_URL: "postgresql://u:secret@pooler:5432/db",
+      }),
+    ).toBe("pgboss on pooler:5432");
+    expect(() => createDriver("sender", { QUEUE_DRIVER: "pgboss" })).toThrow("The pgboss queue needs DATABASE_URL.");
+  });
+
+  it("rejects an unknown driver", () => {
     expect(() => createDriver("worker", { QUEUE_DRIVER: "bullmq", DATABASE_URL: "postgresql://x@y/z" })).toThrow(
-      'Unknown QUEUE_DRIVER "bullmq". Supported: pgboss.',
+      'Unknown QUEUE_DRIVER "bullmq". Supported: inline, pgboss.',
     );
-    expect(() => createDriver("sender", {})).toThrow("The pgboss queue needs DATABASE_URL.");
+  });
+
+  it("runs a job as soon as it is sent with the inline driver", async () => {
+    const driver = new InlineDriver(sql);
+    await driver.send("record-click", click());
+    expect(await db().select().from(clicks)).toHaveLength(1);
   });
 });
 
@@ -130,8 +152,7 @@ describe("queued clicks", () => {
     expect(await insertClicks(sql, [orphan])).toBe(0);
   });
 
-  it("goes through the queue when CLICK_INGEST=queue, keeping the visit time", async () => {
-    process.env.CLICK_INGEST = "queue";
+  it("sends every click as a record-click job, keeping the visit time", async () => {
     const response = await tagRoute(
       new NextRequest("http://localhost/r/promo/email", { headers: { "sec-fetch-mode": "navigate", "user-agent": "Mozilla/5.0" } }),
       { params: Promise.resolve({ slug: "promo", tag: "email" }) },
@@ -150,8 +171,7 @@ describe("queued clicks", () => {
     expect(await db().select().from(clicks)).toHaveLength(1);
   });
 
-  it("saves directly when the queue cannot take the click", async () => {
-    process.env.CLICK_INGEST = "queue";
+  it("saves directly when a worker queue cannot take the click", async () => {
     queue.fail = true;
     vi.spyOn(console, "error").mockImplementation(() => {});
     await tagRoute(
@@ -160,5 +180,18 @@ describe("queued clicks", () => {
     );
     await Promise.all(pending.splice(0));
     expect(await db().select().from(clicks)).toHaveLength(1);
+  });
+
+  it("logs, without retrying, when an inline save fails", async () => {
+    queue.fail = true;
+    queue.inline = true;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await tagRoute(
+      new NextRequest("http://localhost/r/promo/email", { headers: { "sec-fetch-mode": "navigate", "user-agent": "Mozilla/5.0" } }),
+      { params: Promise.resolve({ slug: "promo", tag: "email" }) },
+    );
+    await Promise.all(pending.splice(0));
+    expect(await db().select().from(clicks)).toEqual([]);
+    expect(logged).toHaveBeenCalledWith("Failed to record click:", "queue down");
   });
 });

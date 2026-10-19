@@ -121,7 +121,7 @@ export async function runBulkJob(
     await sql`
       insert into audit_log (user_id, action, workspace_id, target_type, target_id, details)
       select b.created_by, 'placement.bulk_create', l.workspace_id, 'link', l.slug,
-        ${sql.json({ bulkJobId: jobId, placements: placements.length, format: job.format })}
+        ${JSON.stringify({ bulkJobId: jobId, placements: placements.length, format: job.format })}::text::jsonb
       from bulk_jobs b join links l on l.id = b.link_id where b.id = ${jobId}`;
     return "done";
   } catch (error) {

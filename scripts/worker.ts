@@ -1,5 +1,6 @@
-// Runs every background job in lib/jobs/catalog.ts: bulk placement uploads, hourly removal of
-// expired QR zips, and queued clicks (when CLICK_INGEST=queue). Keep one running next to the app:
+// Runs every background job in lib/jobs/catalog.ts (bulk placement uploads, hourly removal of
+// expired QR zips, clicks) when QUEUE_DRIVER=pgboss. With the default inline queue the app runs
+// jobs itself and no worker is needed. With a worker queue, keep one running next to the app:
 //
 //   npm run worker
 //
@@ -10,7 +11,7 @@ import nextEnv from "@next/env";
 import postgres from "postgres";
 import { JOB_NAMES, JOBS } from "../lib/jobs/catalog.ts";
 import { jobHandlers } from "../lib/jobs/handlers.ts";
-import { createDriver, describeQueue } from "../lib/jobs/create-driver.ts";
+import { createDriver, describeQueue, queueKind } from "../lib/jobs/create-driver.ts";
 
 nextEnv.loadEnvConfig(process.cwd());
 
@@ -18,6 +19,12 @@ const url = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL;
 if (!url) {
   console.error("Needs DATABASE_URL in .env.local or the environment.");
   process.exit(1);
+}
+
+if (queueKind() === "inline") {
+  console.log("QUEUE_DRIVER is inline (the default): jobs run inside the app, so there is nothing for a worker to do.");
+  console.log("Set QUEUE_DRIVER=pgboss for both the app and the worker to use the worker.");
+  process.exit(0);
 }
 
 const sql = postgres(url, { prepare: false, max: 4, onnotice: () => {} });

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BulkRow } from "@/lib/bulk-parse";
 import { getDb, type Db } from "@/lib/db";
 import { bulkJobs, links } from "@/lib/db/schema";
@@ -25,8 +25,12 @@ export async function insertBulkJob(input: {
   return row.id;
 }
 
+// Leaves a job alone that already failed (with its own reason) or finished.
 export async function markBulkJobFailed(id: string, error: string): Promise<void> {
-  await db().update(bulkJobs).set({ status: "failed", error }).where(eq(bulkJobs.id, id));
+  await db()
+    .update(bulkJobs)
+    .set({ status: "failed", error })
+    .where(and(eq(bulkJobs.id, id), inArray(bulkJobs.status, ["queued", "running"])));
 }
 
 export type BulkJobSummary = {

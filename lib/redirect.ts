@@ -3,7 +3,7 @@ import "server-only";
 import { after, NextResponse, type NextRequest } from "next/server";
 import { findDestination, insertClick } from "@/lib/data";
 import { hostedPageResponse } from "@/lib/hosted-page";
-import { enqueue } from "@/lib/queue";
+import { enqueue, jobsRunInline } from "@/lib/queue";
 import { uuidv7 } from "@/lib/uuid7";
 import { VISITOR_COOKIE } from "@/lib/session";
 import { findPlacementDestination, type PlacementDestination } from "@/lib/placement-data";
@@ -69,7 +69,7 @@ function respond(
   // Next.js answers HEAD with the GET handler; scanners use HEAD to check links without opening them.
   // The click is saved after the response is sent, so a slow database never delays the visitor.
   if (request.method !== "HEAD" && !isPrefetch(request)) {
-    // The time is taken now, so a queued click keeps the moment of the visit.
+    // The time is taken now, so a click saved later keeps the moment of the visit.
     const at = new Date().toISOString();
     after(() => record(click, at));
   }
@@ -96,9 +96,9 @@ function respond(
   return response;
 }
 
-// CLICK_INGEST=queue hands clicks to the worker (record-click job), which saves them in batches;
-// if the queue cannot take one, it is saved directly so no visit is lost. Anything else saves
-// directly, as before.
+// Every click is a record-click job. With the default inline queue it is saved right away (this
+// already runs after the response); with a worker queue it is saved in batches by the worker. If a
+// worker queue cannot take the click, it is saved directly so no visit is lost.
 async function saveClick(
   linkId: string,
   click: ClickDraft,
@@ -106,29 +106,31 @@ async function saveClick(
   placementId: string | null,
   at: string,
 ): Promise<void> {
-  if (process.env.CLICK_INGEST === "queue") {
-    try {
-      await enqueue("record-click", {
-        id: uuidv7(Date.parse(at)),
-        linkId,
-        visitorId: click.visitorId,
-        ip: click.ip,
-        userAgent: click.userAgent,
-        referrer: click.referrer,
-        country: click.country,
-        region: click.region,
-        city: click.city,
-        isBot: click.isBot,
-        tag,
-        placementId,
-        clickedAt: at,
-      });
+  try {
+    await enqueue("record-click", {
+      id: uuidv7(Date.parse(at)),
+      linkId,
+      visitorId: click.visitorId,
+      ip: click.ip,
+      userAgent: click.userAgent,
+      referrer: click.referrer,
+      country: click.country,
+      region: click.region,
+      city: click.city,
+      isBot: click.isBot,
+      tag,
+      placementId,
+      clickedAt: at,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : error;
+    if (jobsRunInline()) {
+      console.error("Failed to record click:", message);
       return;
-    } catch (error) {
-      console.error("Could not queue a click; saving it directly:", error instanceof Error ? error.message : error);
     }
+    console.error("Could not queue a click; saving it directly:", message);
+    await insertClick(linkId, click, tag, placementId);
   }
-  await insertClick(linkId, click, tag, placementId);
 }
 
 function notFoundResponse(message = "This link is not in the log."): NextResponse {
