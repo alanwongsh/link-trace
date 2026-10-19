@@ -14,6 +14,8 @@ import { listLinks, loadDashboard } from "@/lib/data";
 import { placementFields } from "@/lib/parameter-data";
 import { appOrigin } from "@/lib/origin";
 import { atLeast } from "@/lib/roles";
+import { keepRollupCurrent } from "@/lib/report-data";
+import { DEFAULT_TIMEZONE, timezoneLabel, timezoneOffset } from "@/lib/timezones";
 import { countryName } from "@/lib/track";
 import { LocalTime } from "@/components/local-time";
 
@@ -43,6 +45,12 @@ export default async function HomePage({
   };
   const [result, dashboard] = await Promise.all([listLinks(filter), loadDashboard(filter)]);
   const summary = dashboard.ok ? dashboard.data : null;
+  // With the inline queue, starts a rollup of the daily totals when they are behind.
+  if (dashboard.ok) await keepRollupCurrent();
+  // Links in several workspaces may count days in different zones; each uses its own.
+  const zones = summary?.timezones.length ? summary.timezones : [DEFAULT_TIMEZONE];
+  const zoneNote = zones.length === 1 ? timezoneLabel(zones[0]) : "each workspace's own timezone";
+  const zoneShort = zones.length === 1 ? timezoneOffset(zones[0]) : "local";
   const base = await appOrigin();
   const links = result.ok ? result.data : [];
   const visits = links.reduce((sum, link) => sum + link.click_count, 0);
@@ -97,10 +105,13 @@ export default async function HomePage({
             <Stat label="Clicks" value={summary.clicks} hint={`${summary.clicks7d.toLocaleString("en")} in the last 7 days`} />
             <Stat label="Visitors" value={summary.visitors} hint="Estimated from browser ids" />
             <Stat
-              label="Today"
+              label={`Today (${zoneShort})`}
               value={summary.clicksToday}
               hint={`${summary.botClicks.toLocaleString("en")} bot hits left out`}
             />
+            <p className="text-xs text-muted sm:col-span-2 lg:col-span-4">
+              Today, the last 7 days and the chart count days in {zoneNote}.
+            </p>
           </section>
         ) : ready && !dashboard.ok ? (
           <p className="text-sm text-warn">{dashboard.message}</p>
@@ -204,8 +215,8 @@ export default async function HomePage({
             </h2>
             <div className="panel">
               <h3 className="sub-title">Last 30 days</h3>
-              <p className="mt-1 text-sm text-muted">Human visits per day, grouped in UTC. Hover a bar for its count.</p>
-              <DailyBars days={summary.daily} label="Human visits per day, last 30 days" />
+              <p className="mt-1 text-sm text-muted">Human visits per day, days in {zoneNote}. Hover a bar for its count.</p>
+              <DailyBars days={summary.daily} label="Human visits per day, last 30 days" zone={zoneShort} />
             </div>
             <div className="grid gap-4 lg:grid-cols-3">
               <Breakdown

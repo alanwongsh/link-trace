@@ -12,7 +12,7 @@ export function db(): Db {
 
 export async function resetData(): Promise<void> {
   await db().execute(
-    sql.raw("truncate clicks, placement_values, placements, bulk_jobs, links, tracking_parameter_options, tracking_parameters, audit_log, sessions, memberships, users, workspaces restart identity cascade"),
+    sql.raw("truncate click_daily, rollup_progress, clicks, placement_values, placements, bulk_jobs, links, tracking_parameter_options, tracking_parameters, audit_log, sessions, memberships, users, workspaces restart identity cascade"),
   );
 }
 

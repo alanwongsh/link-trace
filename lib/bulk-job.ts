@@ -5,6 +5,7 @@ import { zipSync, strToU8 } from "fflate";
 import type { Sql } from "postgres";
 import QRCode from "qrcode";
 import { toCsv } from "./csv.ts";
+import { labelKey } from "./label-key.ts";
 import { createSlug } from "./slug.ts";
 
 export const ZIP_DAYS = 7;
@@ -52,14 +53,21 @@ export async function runBulkJob(
       const existing = await tx<{ id: string }[]>`select id from placements where bulk_job_id = ${jobId} limit 1`;
       if (existing.length === 0) {
         for (const row of job.rows) {
+          const key = labelKey(row.values, row.name);
           let placementId: string | undefined;
           while (!placementId) {
+            // Either unique index may refuse it: a taken code (try another) or labels that an
+            // active placement already has (made since the upload was checked: skip the row).
             const inserted = await tx<{ id: string }[]>`
-              insert into placements (link_id, code, name, bulk_job_id, created_by)
-              select ${job.link_id}, ${createSlug(8)}, ${row.name}, ${jobId}, created_by from bulk_jobs where id = ${jobId}
-              on conflict (code) do nothing returning id`;
+              insert into placements (link_id, code, name, bulk_job_id, created_by, label_key)
+              select ${job.link_id}, ${createSlug(8)}, ${row.name}, ${jobId}, created_by, ${key} from bulk_jobs where id = ${jobId}
+              on conflict do nothing returning id`;
             placementId = inserted[0]?.id;
+            if (placementId) break;
+            const [taken] = await tx`select 1 from placements where link_id = ${job.link_id} and label_key = ${key} and is_active`;
+            if (taken) break;
           }
+          if (!placementId) continue;
           if (row.values.length) {
             await tx`insert into placement_values ${tx(
               row.values.map((v) => ({ placement_id: placementId!, parameter_id: v.parameterId, option_id: v.optionId, value: v.value })),
@@ -115,7 +123,7 @@ export async function runBulkJob(
     const zip = zipSync(files, { level: job.format === "png" ? 0 : 6 });
 
     await sql`
-      update bulk_jobs set status = 'done', zip = ${Buffer.from(zip)}, processed = ${placements.length},
+      update bulk_jobs set status = 'done', zip = ${Buffer.from(zip)}, processed = ${placements.length}, total = ${placements.length},
         finished_at = now(), expires_at = now() + make_interval(days => ${ZIP_DAYS})
       where id = ${jobId}`;
     await sql`

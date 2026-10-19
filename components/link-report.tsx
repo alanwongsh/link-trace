@@ -7,6 +7,7 @@ import {
   type ReportParameter,
   type ReportRange,
 } from "@/lib/report-data";
+import { timezoneLabel } from "@/lib/timezones";
 
 const RANGE_LABELS: Record<ReportRange, string> = { "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All time" };
 
@@ -19,7 +20,10 @@ export function LinkReportView({
   range,
   report,
   labelledLinksHref,
+  timezone,
 }: {
+  // The workspace timezone the period's days are counted in.
+  timezone: string;
   slug: string;
   // Labels this link's labelled links use.
   parameters: ReportParameter[];
@@ -165,8 +169,9 @@ export function LinkReportView({
         </div>
       )}
       <p className="text-xs text-muted">
-        Bots are left out. Visitors are an estimate: one per browser, counted again if someone clears cookies or
-        changes browser, so rows can add up to more than the total.
+        Days in {timezoneLabel(timezone)}; the period ends today there. Bots are left out. Visitors are an estimate:
+        one per browser per day, so someone who comes back on another day, clears cookies or changes browser counts
+        again, and rows can add up to more than the total.
         {report.truncated ? ` Showing the top ${REPORT_ROW_LIMIT.toLocaleString("en")} rows; export the CSV for all.` : ""}
       </p>
     </section>

@@ -1,9 +1,15 @@
 import { eq, sql as sqlTag } from "drizzle-orm";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import postgres from "postgres";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@/lib/accounts";
+import { rollUpClicks } from "@/lib/click-rollup";
 import { clicks, links, trackingParameters } from "@/lib/db/schema";
 import { createUser, createWorkspace, db, form, resetData } from "./helpers";
+import { testDatabaseUrl } from "./test-db";
+
+const client = postgres(testDatabaseUrl(), { max: 1, onnotice: () => {} });
+afterAll(() => client.end());
 
 const session = vi.hoisted(() => ({ user: null as SessionUser | null }));
 vi.mock("@/lib/auth", async (importOriginal) => {
@@ -20,7 +26,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { createParameter, importOptions } = await import("@/lib/parameter-actions");
-const { insertPlacement } = await import("@/lib/placement-data");
+const { insertPlacement, pagePlacements } = await import("@/lib/placement-data");
 const { linkReport, readReportQuery, reportParameters } = await import("@/lib/report-data");
 const { GET: reportCsv } = await import("@/app/stats/[slug]/report/route");
 
@@ -89,7 +95,8 @@ beforeEach(async () => {
   const klEmail = await labelled({ store: "KL001", channel: "email" });
   const klWhatsapp = await labelled({ store: "KL001", channel: "whatsapp" });
   const pgEmail = await labelled({ store: "PG002", channel: "email" });
-  await visits(klEmail, 5);
+  // Two days ago, so the rollup totals them; the rest are today and always read live.
+  await visits(klEmail, 5, { daysAgo: 2 });
   await visits(klWhatsapp, 3);
   await visits(pgEmail, 2);
   await visits(pgEmail, 4, { isBot: true });
@@ -139,6 +146,33 @@ describe("link report", () => {
     expect(readReportQuery({}, available, available.slice(0, 1))).toMatchObject({ groupBy: [{ key: "store" }], range: "30d" });
   });
 
+  it("gives the same numbers from daily totals, reading only newer clicks raw", async () => {
+    const before = simple(await linkReport(linkId, [params.store.id, params.channel.id], "all"));
+    expect(await rollUpClicks(client)).toBeGreaterThan(0);
+    expect(simple(await linkReport(linkId, [params.store.id, params.channel.id], "all"))).toEqual(before);
+
+    // Finished days now come only from click_daily: removing their raw clicks changes nothing.
+    await client`delete from clicks where clicked_at < date_trunc('day', now() at time zone 'utc') at time zone 'utc'`;
+    expect(simple(await linkReport(linkId, [params.store.id, params.channel.id], "all"))).toEqual(before);
+    // 45 days ago is outside 30 days; 2 days ago is inside.
+    expect(simple(await linkReport(linkId, [params.store.id], "30d"))).toEqual([
+      ["KL001", 8],
+      ["PG002", 2],
+      ["main", 1],
+    ]);
+  });
+
+  it("picks up clicks saved late for the last two finished days", async () => {
+    await rollUpClicks(client);
+    const total = async () => (await linkReport(linkId, [], "all")).totalClicks;
+    const was = await total();
+    // Saved after the rollup, for yesterday (a click queued just before midnight).
+    await visits(null, 2, { daysAgo: 1 });
+    expect(await total()).toBe(was);
+    await rollUpClicks(client);
+    expect(await total()).toBe(was + 2);
+  });
+
   it("exports the same numbers as CSV, only to people who can see the link", async () => {
     const response = await reportCsv(new NextRequest("http://localhost/stats/promo/report?by=channel&range=30d"), {
       params: Promise.resolve({ slug: "promo" }),
@@ -154,5 +188,37 @@ describe("link report", () => {
     session.user = await createUser({ [await createWorkspace()]: "owner" });
     const hidden = await reportCsv(new NextRequest("http://localhost/stats/promo/report"), { params: Promise.resolve({ slug: "promo" }) });
     expect(hidden.status).toBe(404);
+  });
+});
+
+describe("labelled links list", () => {
+  it("pages newest first, with counts from the daily totals", async () => {
+    await rollUpClicks(client);
+    const first = await pagePlacements(linkId, { limit: 2, offset: 0 });
+    expect(first.total).toBe(3);
+    expect(first.rows.map((r) => r.values.map((v) => v.value).join("/"))).toEqual(["PG002/email", "KL001/whatsapp"]);
+    // PG002 · email: 2 human clicks today; its 4 bot clicks are left out.
+    expect(first.rows[0]).toMatchObject({ clicks: 2, visitors: 2 });
+
+    const second = await pagePlacements(linkId, { limit: 2, offset: 2 });
+    expect(second.rows.map((r) => r.values.map((v) => v.value).join("/"))).toEqual(["KL001/email"]);
+    // 5 two days ago (rolled up) + 6 forty-five days ago (rolled up).
+    expect(second.rows[0]).toMatchObject({ clicks: 11 });
+
+    expect((await pagePlacements(linkId, { limit: 2, offset: 4 })).rows).toEqual([]);
+    expect((await pagePlacements(linkId, { limit: 2, offset: 4 })).total).toBe(3);
+  });
+
+  it("searches codes, values and option labels, and filters by status", async () => {
+    expect((await pagePlacements(linkId, { q: "mid val", limit: 10, offset: 0 })).total).toBe(2);
+    expect((await pagePlacements(linkId, { q: "whatsapp", limit: 10, offset: 0 })).total).toBe(1);
+    // % and _ are matched literally, not as wildcards.
+    expect((await pagePlacements(linkId, { q: "%", limit: 10, offset: 0 })).total).toBe(0);
+
+    const [one] = (await pagePlacements(linkId, { q: "whatsapp", limit: 1, offset: 0 })).rows;
+    await client`update placements set is_active = false where id = ${one.id}`;
+    expect((await pagePlacements(linkId, { status: "inactive", limit: 10, offset: 0 })).rows.map((r) => r.id)).toEqual([one.id]);
+    expect((await pagePlacements(linkId, { status: "active", limit: 10, offset: 0 })).total).toBe(2);
+    expect((await pagePlacements(linkId, { q: one.code.toUpperCase(), limit: 10, offset: 0 })).total).toBe(1);
   });
 });

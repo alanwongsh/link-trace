@@ -26,6 +26,7 @@ import {
 import { deleteLink, findDestination, insertLink, moveLink, saveTags, saveTarget } from "@/lib/data";
 import { hashPassword, passwordProblem, verifyAgainstDummy, verifyPassword } from "@/lib/password";
 import { queueLabelledLinks } from "@/lib/bulk-queue";
+import { queueRebuild } from "@/lib/daily-totals";
 import { parameterDefinitions } from "@/lib/parameter-data";
 import { MAX_LABELLED_LINKS, planPlacements, submittedParameterLists, type ParameterValue } from "@/lib/parameters";
 import { insertPlacement, linkHasPlacements } from "@/lib/placement-data";
@@ -399,6 +400,8 @@ export async function moveLinkToWorkspace(_prev: FormState, formData: FormData):
 
   const moved = await moveLink(slug, workspaceId, user.id);
   if (!moved.ok) return { error: moved.message, ok: "" };
+  // The other workspace may count its days in another timezone.
+  queueRebuild({ linkIds: [link.id] });
   await audit({
     actor: actor(user),
     action: "link.moved",

@@ -25,6 +25,9 @@ export type JobPayloads = {
   "bulk-placements": { bulkJobId: string };
   "bulk-cleanup": Record<string, never>;
   "record-click": ClickJob;
+  "click-rollup": Record<string, never>;
+  // After a workspace changes timezone, or links move to a workspace on another one.
+  "rebuild-totals": { workspaceId: string } | { linkIds: string[] };
 };
 
 export type JobName = keyof JobPayloads;
@@ -47,6 +50,10 @@ export const JOBS: Record<JobName, JobSettings> = {
   "bulk-cleanup": { retryLimit: 1, retryDelaySeconds: 60, expireInSeconds: 5 * 60, batchSize: 1, schedule: "17 * * * *" },
   // Saved in batches; a failed batch is retried soon, and each click saves at most once.
   "record-click": { retryLimit: 5, retryDelaySeconds: 10, expireInSeconds: 60, batchSize: 200 },
+  // Daily click totals for reports; each run only reads the last two finished days of clicks.
+  "click-rollup": { retryLimit: 2, retryDelaySeconds: 120, expireInSeconds: 10 * 60, batchSize: 1, schedule: "7 * * * *" },
+  // Reads the links' whole history once.
+  "rebuild-totals": { retryLimit: 2, retryDelaySeconds: 120, expireInSeconds: 30 * 60, batchSize: 1 },
 };
 
 export const JOB_NAMES = Object.keys(JOBS) as JobName[];

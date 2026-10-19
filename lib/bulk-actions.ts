@@ -9,6 +9,7 @@ import { queueBulkJob } from "@/lib/bulk-queue";
 import { findDestination } from "@/lib/data";
 import { appOrigin } from "@/lib/origin";
 import { parameterDefinitions } from "@/lib/parameter-data";
+import { withoutExisting } from "@/lib/placement-data";
 import { normalizeSlug } from "@/lib/slug";
 import type { BulkState } from "@/lib/types";
 
@@ -16,7 +17,7 @@ const MAX_CSV_BYTES = 512 * 1024;
 const SHOWN_PROBLEMS = 20;
 
 function failed(error: string): BulkState {
-  return { error, checked: false, ready: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
+  return { error, checked: false, ready: 0, skipped: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
 }
 
 // intent "check" previews the CSV; "create" checks it again on the server and queues the job.
@@ -38,23 +39,27 @@ export async function bulkPlacements(_prev: BulkState, formData: FormData): Prom
   const definitions = await parameterDefinitions(link.workspaceId);
   const names = new Map(definitions.map((d) => [d.key, d.name]));
   const parsed = parseBulkCsv(definitions, csv);
+  // Rows matching an active labelled link (or an earlier row) are skipped, not made twice.
+  const { fresh, existing } = await withoutExisting(link.id, parsed.rows);
   const state: BulkState = {
     error: "",
     checked: true,
-    ready: parsed.rows.length,
+    ready: fresh.length,
+    skipped: existing.length,
     problems: parsed.problems.slice(0, SHOWN_PROBLEMS),
     problemCount: parsed.problems.length,
-    sample: parsed.rows.slice(0, 5).map((row) => [
+    sample: fresh.slice(0, 5).map((row) => [
       ...(row.name ? [`Name: ${row.name}`] : []),
       ...row.values.map((v) => `${names.get(v.key) ?? v.key}: ${v.value}`),
     ]),
     jobId: "",
   };
   if (formData.get("intent") !== "create" || parsed.problems.length) return state;
+  if (fresh.length === 0) return { ...state, error: "Every row already exists, so there is nothing to add." };
 
   const jobId = await insertBulkJob({
     linkId: link.id,
-    rows: parsed.rows,
+    rows: fresh,
     format,
     baseUrl: await appOrigin(),
     createdBy: user.id,
@@ -66,7 +71,7 @@ export async function bulkPlacements(_prev: BulkState, formData: FormData): Prom
     workspaceId: link.workspaceId,
     targetType: "link",
     targetId: slug!,
-    details: { bulkJobId: jobId, rows: parsed.rows.length, format },
+    details: { bulkJobId: jobId, rows: fresh.length, skipped: existing.length, format },
   });
   revalidatePath(`/stats/${slug}`);
   return { ...state, jobId };

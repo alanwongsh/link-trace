@@ -13,6 +13,10 @@ const initial: PlacementState = { error: "", fieldErrors: {}, code: "" };
 // Values listed per label in the review; the rest are counted.
 const REVIEW_VALUES = 8;
 
+function skippedText(count: number) {
+  return `${count.toLocaleString("en")} already existed with the same labels and ${count === 1 ? "was" : "were"} skipped.`;
+}
+
 export function PlacementForm({
   slug,
   fields,
@@ -104,12 +108,13 @@ function Fields({
       <input type="hidden" name="slug" value={slug} />
       {state.code ? (
         <p className="rounded-xl border border-teal/40 bg-teal/5 px-4 py-3 text-sm text-teal" role="status">
-          Created <span className="font-mono">{`${base}/q/${state.code}`}</span>. It&apos;s in the list above.
+          Created <span className="font-mono">{`${base}/q/${state.code}`}</span>. It&apos;s in the list below.
+          {state.skippedCount ? ` ${skippedText(state.skippedCount)}` : ""}
         </p>
       ) : state.queuedCount ? (
         <p className="rounded-xl border border-teal/40 bg-teal/5 px-4 py-3 text-sm text-teal" role="status">
           Making {state.queuedCount.toLocaleString("en")} labelled links. Zips of their QR codes appear under QR
-          code downloads when ready.
+          code downloads when ready.{state.skippedCount ? ` ${skippedText(state.skippedCount)}` : ""}
         </p>
       ) : null}
 

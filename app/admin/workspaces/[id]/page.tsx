@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { AdminNav } from "@/components/admin-nav";
+import { FormSelect } from "@/components/form-select";
 import { RoleSelect } from "@/components/role-select";
 import { TopBar } from "@/components/top-bar";
 import { findWorkspace, listWorkspaces, workspaceMembers } from "@/lib/accounts";
-import { addMember, removeMember, removeWorkspace, updateWorkspaceName } from "@/lib/admin-actions";
+import { addMember, removeMember, removeWorkspace, updateWorkspaceName, updateWorkspaceTimezone } from "@/lib/admin-actions";
 import { requireOrgAdmin } from "@/lib/auth";
 import { ROLE_LABELS, ROLE_NAMES } from "@/lib/roles";
+import { timezoneLabel, timezoneNames } from "@/lib/timezones";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +116,26 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
               required
               className="field"
               aria-label="Workspace name"
+            />
+          </ActionForm>
+        </section>
+
+        <section className="rounded-2xl border border-line bg-card p-5">
+          <h2 className="font-serif text-2xl">Reporting timezone</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted">
+            Where this workspace&apos;s days start: &ldquo;today&rdquo;, the last 7 days and every daily chart and report
+            count from local midnight here. Changing it recounts past days in the background.
+          </p>
+          <ActionForm action={updateWorkspaceTimezone} submit="Save" className="mt-4 grid max-w-md gap-3">
+            <input type="hidden" name="workspace_id" value={workspace.id} />
+            <FormSelect
+              name="timezone"
+              defaultValue={workspace.timezone}
+              options={timezoneNames().map((zone) => ({ value: zone, label: timezoneLabel(zone) }))}
+              placeholder="Choose a timezone"
+              ariaLabel="Reporting timezone"
+              required
+              fullWidth
             />
           </ActionForm>
         </section>

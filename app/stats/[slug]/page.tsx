@@ -7,6 +7,7 @@ import { CopyButton } from "@/components/copy-button";
 import { EditTargetForm } from "@/components/edit-target-form";
 import { LinkReportView } from "@/components/link-report";
 import { LinkTarget } from "@/components/link-target";
+import { ListFilters, Pagination, readPage } from "@/components/list-controls";
 import { LocalTime } from "@/components/local-time";
 import { PagePreview } from "@/components/page-preview";
 import { PlacementForm } from "@/components/placement-form";
@@ -24,9 +25,10 @@ import { allowed, can, requireUser } from "@/lib/auth";
 import { findDestination, linkOwnership, loadDetail } from "@/lib/data";
 import { placementFields } from "@/lib/parameter-data";
 import { setPlacementStatus } from "@/lib/placement-actions";
-import { listPlacements } from "@/lib/placement-data";
+import { countPlacements, pagePlacements } from "@/lib/placement-data";
 import { listBulkJobs } from "@/lib/bulk-data";
-import { linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
+import { timezoneLabel, timezoneOffset } from "@/lib/timezones";
+import { keepRollupCurrent, linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
 import { jobsRunInline } from "@/lib/queue";
 import { appOrigin } from "@/lib/origin";
 import {
@@ -40,13 +42,15 @@ import {
 export const dynamic = "force-dynamic";
 // Bulk uploads run after this page's actions respond; Vercel caps this at the plan's limit.
 export const maxDuration = 300;
+// Labelled links listed per page on the link page.
+const LINKS_PAGE_SIZE = 25;
 
 export default async function StatsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ tab?: string; by?: string; range?: string }>;
+  searchParams: Promise<{ tab?: string; by?: string; range?: string; q?: string; status?: string; page?: string }>;
 }) {
   const user = await requireUser();
   const { slug } = await params;
@@ -69,6 +73,8 @@ export default async function StatsPage({
   if (!result.data) notFound();
 
   const detail = result.data;
+  // Every tab reads the daily totals; with the inline queue this starts a rollup when they are behind.
+  await keepRollupCurrent();
   // Links outside the user's workspaces look the same as missing ones.
   const ownership = await linkOwnership(detail.link.slug);
   if (!ownership || !can(user, ownership.workspaceId, "viewer")) notFound();
@@ -89,8 +95,8 @@ export default async function StatsPage({
   const base = await appOrigin();
   const shortUrl = `${base}/r/${detail.link.slug}`;
   const canPlace = allowed(user, ownership.workspaceId, "placements.manage");
-  const [placementRows, fields, bulkJobs] = await Promise.all([
-    listPlacements(detail.link.id),
+  const [placementCount, fields, bulkJobs] = await Promise.all([
+    countPlacements(detail.link.id),
     canPlace ? placementFields(ownership.workspaceId) : Promise.resolve([]),
     listBulkJobs(detail.link.id),
   ]);
@@ -110,7 +116,7 @@ export default async function StatsPage({
   const tabs = [
     { key: "overview", label: "Overview" },
     { key: "report", label: "Report" },
-    { key: "links", label: "Labelled links", count: placementRows.length },
+    { key: "links", label: "Labelled links", count: placementCount },
     ...(hasSettings ? [{ key: "settings", label: "Settings" }] : []),
   ];
   const tab = tabs.find((t) => t.key === query.tab)?.key ?? "overview";
@@ -126,6 +132,29 @@ export default async function StatsPage({
           return { parameters, groupBy, range, report };
         })()
       : null;
+
+  // One page of labelled links, only on their tab.
+  const linkFilters = {
+    q: (query.q ?? "").trim(),
+    status: (["active", "inactive"] as const).find((s) => s === query.status) ?? ("all" as const),
+    page: readPage(query.page),
+  };
+  const linksPage =
+    tab === "links"
+      ? await pagePlacements(detail.link.id, {
+          q: linkFilters.q,
+          status: linkFilters.status,
+          limit: LINKS_PAGE_SIZE,
+          offset: (linkFilters.page - 1) * LINKS_PAGE_SIZE,
+        })
+      : null;
+  const linksPageHref = (n: number) =>
+    `/stats/${detail.link.slug}?${new URLSearchParams({
+      tab: "links",
+      ...(linkFilters.q ? { q: linkFilters.q } : {}),
+      ...(linkFilters.status !== "all" ? { status: linkFilters.status } : {}),
+      page: String(n),
+    })}`;
 
   return (
     <>
@@ -167,17 +196,25 @@ export default async function StatsPage({
 
         {tab === "overview" ? (
           <>
+            <p className="-mb-4 text-xs text-muted">
+              Days, today and the last 7 days are counted in {timezoneLabel(detail.timezone)}, {ownership.workspaceName}
+              &apos;s reporting timezone.
+            </p>
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
-              <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d} in 7 days`} />
-              <Stat label="Visitors" value={detail.unique_visitors} hint="Distinct browser ids" />
-              <Stat label="IP addresses" value={detail.unique_ips} hint={`${detail.clicks_today} clicks today`} />
+              <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d.toLocaleString("en")} in the last 7 days`} />
+              <Stat label="Visitors" value={detail.unique_visitors} hint="Distinct browsers, counted per day" />
+              <Stat label="IP addresses" value={detail.unique_ips} hint={`Counted per day · ${detail.clicks_today.toLocaleString("en")} clicks today`} />
               <Stat label="Bot hits" value={detail.bot_clicks} hint="Left out of the other counts" />
             </section>
 
             <section className="panel">
               <h2 className="panel-title">Last 14 days</h2>
-              <p className="mt-1 text-sm text-muted">Human visits only. Days are grouped in UTC.</p>
-              <DailyBars days={detail.daily} label="Human visits per day, last 14 days" />
+              <p className="mt-1 text-sm text-muted">Human visits only. Days in {timezoneLabel(detail.timezone)}.</p>
+              <DailyBars
+                days={detail.daily}
+                label="Human visits per day, last 14 days"
+                zone={timezoneOffset(detail.timezone)}
+              />
             </section>
 
             <VisitorMap countries={detail.countries} />
@@ -221,7 +258,7 @@ export default async function StatsPage({
                       {detail.recent.map((click, index) => (
                         <tr key={`${click.clicked_at}-${click.visitor_id}-${index}`} className="border-b border-line last:border-0">
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <LocalTime iso={click.clicked_at} />
+                            <LocalTime iso={click.clicked_at} timeZone={detail.timezone} />
                           </td>
                           <td className="px-4 py-3 font-mono text-xs">{click.tag || "—"}</td>
                           <td className="px-4 py-3 font-mono text-xs" title={click.ip || ""}>
@@ -256,6 +293,7 @@ export default async function StatsPage({
             range={reportData.range}
             report={reportData.report}
             labelledLinksHref={tabHref("links")}
+            timezone={detail.timezone}
           />
         ) : null}
 
@@ -309,7 +347,7 @@ export default async function StatsPage({
                       ]
                     : []
                 }
-                defaultOpen={canPlace && placementRows.length === 0 ? "add" : null}
+                defaultOpen={canPlace && placementCount === 0 ? "add" : null}
               />
 
               {bulkJobs.length > 0 ? (
@@ -370,11 +408,42 @@ export default async function StatsPage({
                 </div>
               ) : null}
 
-              {placementRows.length === 0 ? (
+              {placementCount > 0 ? (
+                <ListFilters
+                  action={`/stats/${detail.link.slug}`}
+                  keep={{ tab: "links" }}
+                  search={{ value: linkFilters.q, placeholder: "Search code or label value", label: "Search labelled links" }}
+                  filters={[
+                    {
+                      name: "status",
+                      label: "Status",
+                      defaultValue: "all",
+                      value: linkFilters.status,
+                      options: [
+                        { value: "all", label: "All statuses" },
+                        { value: "active", label: "Active" },
+                        { value: "inactive", label: "Inactive" },
+                      ],
+                    },
+                  ]}
+                />
+              ) : null}
+
+              {placementCount === 0 ? (
                 <p className="empty-state text-sm">No labelled links yet.</p>
+              ) : !linksPage || linksPage.rows.length === 0 ? (
+                <p className="empty-state text-sm">
+                  {linksPage && linksPage.total > 0 ? (
+                    <>
+                      Nothing on this page. <a href={linksPageHref(1)} className="text-teal hover:underline">Go to page 1</a>
+                    </>
+                  ) : (
+                    "No labelled links match."
+                  )}
+                </p>
               ) : (
                 <ul className="grid gap-3">
-                  {placementRows.map((p) => {
+                  {linksPage.rows.map((p) => {
                     const url = `${base}/q/${p.code}`;
                     // Named from its labels when it has no name of its own (the forms no longer ask for one).
                     const title = p.name || p.values.map((v) => v.value).join(" · ") || p.code;
@@ -442,6 +511,15 @@ export default async function StatsPage({
                   })}
                 </ul>
               )}
+              {linksPage ? (
+                <Pagination
+                  page={linkFilters.page}
+                  pageSize={LINKS_PAGE_SIZE}
+                  total={linksPage.total}
+                  href={linksPageHref}
+                  noun="labelled links"
+                />
+              ) : null}
             </section>
 
             {/* Tags are no longer added; links that have them keep working and stay listed here. */}

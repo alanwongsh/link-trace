@@ -5,7 +5,7 @@ import { bulkPlacements } from "@/lib/bulk-actions";
 import { MAX_BULK_ROWS } from "@/lib/bulk-parse";
 import type { BulkState } from "@/lib/types";
 
-const initial: BulkState = { error: "", checked: false, ready: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
+const initial: BulkState = { error: "", checked: false, ready: 0, skipped: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
 
 export function BulkPlacementForm({ slug, columns }: { slug: string; columns: string[] }) {
   const [state, dispatch, pending] = useActionState(bulkPlacements, initial);
@@ -106,6 +106,9 @@ export function BulkPlacementForm({ slug, columns }: { slug: string; columns: st
           {state.problemCount === 0 ? (
             <p className="font-medium text-teal">
               {state.ready.toLocaleString("en")} row{state.ready === 1 ? "" : "s"} ready.
+              {state.skipped
+                ? ` ${state.skipped.toLocaleString("en")} already exist${state.skipped === 1 ? "s" : ""} with the same labels and will be skipped.`
+                : ""}
             </p>
           ) : (
             <>

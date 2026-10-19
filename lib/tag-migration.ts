@@ -5,6 +5,7 @@
 // and clicks keep their tag. The only change to existing rows is filling clicks.placement_id
 // (new, previously empty) for tag visits, so they count for the matching placement.
 import type { Sql, TransactionSql } from "postgres";
+import { labelKey } from "./label-key.ts";
 import { createSlug } from "./slug.ts";
 
 export type TagMigrationOptions = {
@@ -115,12 +116,20 @@ export async function tagsToParameters(sql: Sql, options: TagMigrationOptions): 
           and not exists (select 1 from placements p where p.link_id = l.id and p.legacy_tag = t.tag)
         order by l.created_at, t.tag`;
       for (const pair of pairs) {
+        const key = labelKey([{ parameterId: parameter.id, value: pair.tag }], pair.tag);
+        const [clash] = await tx<{ code: string }[]>`
+          select code from placements where link_id = ${pair.link_id} and label_key = ${key} and is_active`;
+        if (clash) {
+          throw new Error(
+            `Labelled link /q/${clash.code} already has the name and label "${pair.tag}". Deactivate it or rename the tag, then run again.`,
+          );
+        }
         // A taken code inserts nothing; try another.
         let placementId: string | undefined;
         while (!placementId) {
           const rows = await tx<{ id: string }[]>`
-            insert into placements (link_id, code, name, legacy_tag)
-            values (${pair.link_id}, ${createSlug(8)}, ${pair.tag}, ${pair.tag})
+            insert into placements (link_id, code, name, legacy_tag, label_key)
+            values (${pair.link_id}, ${createSlug(8)}, ${pair.tag}, ${pair.tag}, ${key})
             on conflict (code) do nothing returning id`;
           placementId = rows[0]?.id;
         }

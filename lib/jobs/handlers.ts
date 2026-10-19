@@ -1,6 +1,7 @@
 // What each job does, for the worker. The only place job names map to code.
 import type { Sql } from "postgres";
 import { removeExpiredZips, runBulkJob } from "../bulk-job.ts";
+import { rebuildTotals, rollUpClicks } from "../click-rollup.ts";
 import type { JobName } from "./catalog.ts";
 import { insertClicks } from "./click-job.ts";
 import type { JobHandler } from "./driver.ts";
@@ -27,6 +28,16 @@ export function jobHandlers(sql: Sql, log: Log = console.log): { [N in JobName]:
         sql,
         jobs.map((job) => job.data),
       );
+    },
+    "click-rollup": async () => {
+      const days = await rollUpClicks(sql);
+      if (days) log(`click-rollup: totalled ${days} day${days === 1 ? "" : "s"}`);
+    },
+    "rebuild-totals": async (jobs) => {
+      for (const job of jobs) {
+        await rebuildTotals(sql, job.data);
+        log(`rebuild-totals: ${"workspaceId" in job.data ? `workspace ${job.data.workspaceId}` : `${job.data.linkIds.length} links`}`);
+      }
     },
   };
 }

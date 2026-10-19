@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
+import { ListFilters, Pagination, readPage } from "@/components/list-controls";
 import { OptionImportForm } from "@/components/option-import-form";
 import { TopBar } from "@/components/top-bar";
 import { allowed, requireUser, workspacesWith } from "@/lib/auth";
@@ -30,12 +31,11 @@ export default async function ParameterPage({
 
   const query = await searchParams;
   const q = (query.q ?? "").trim();
-  const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
+  const page = readPage(query.page);
   const options =
     parameter.fieldType === "dropdown"
       ? await listOptions(parameter.id, { search: q, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
       : null;
-  const pages = options ? Math.max(1, Math.ceil(options.total / PAGE_SIZE)) : 1;
   const base = `/workspaces/${id}/parameters/${parameter.id}`;
   const pageHref = (n: number) => `${base}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
 
@@ -112,23 +112,7 @@ export default async function ParameterPage({
                   {q ? `${options.total} match` : `${options.total} of ${MAX_OPTIONS.toLocaleString("en")}`}
                 </span>
               </h2>
-              <form className="flex flex-wrap items-center gap-2" role="search">
-                <input
-                  name="q"
-                  defaultValue={q}
-                  placeholder="Search code or label"
-                  aria-label="Search options"
-                  className="field h-9 w-56 py-1.5"
-                />
-                <button type="submit" className="rounded-full border border-line bg-paper px-4 py-1.5 text-sm font-semibold hover:border-teal">
-                  Search
-                </button>
-                {q ? (
-                  <a href={base} className="text-sm text-teal">
-                    Clear
-                  </a>
-                ) : null}
-              </form>
+              <ListFilters action={base} search={{ value: q, placeholder: "Search code or label", label: "Search options" }} />
             </div>
 
             {options.rows.length === 0 ? (
@@ -201,27 +185,7 @@ export default async function ParameterPage({
               </div>
             )}
 
-            {pages > 1 ? (
-              <nav aria-label="Pages" className="flex items-center justify-between text-sm">
-                {page > 1 ? (
-                  <a href={pageHref(page - 1)} className="text-teal">
-                    Previous
-                  </a>
-                ) : (
-                  <span />
-                )}
-                <span className="num text-muted">
-                  Page {page} of {pages}
-                </span>
-                {page < pages ? (
-                  <a href={pageHref(page + 1)} className="text-teal">
-                    Next
-                  </a>
-                ) : (
-                  <span />
-                )}
-              </nav>
-            ) : null}
+            <Pagination page={page} pageSize={PAGE_SIZE} total={options.total} href={pageHref} noun="options" />
 
             <div className="border-t border-line pt-4">
               <OptionImportForm parameterId={parameter.id} />

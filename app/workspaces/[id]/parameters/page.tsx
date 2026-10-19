@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import { FormSelect } from "@/components/form-select";
 import { ActionForm } from "@/components/action-form";
+import { ListFilters } from "@/components/list-controls";
 import { CreateParameterForm } from "@/components/parameter-form";
 import { RevealPanels } from "@/components/reveal-panels";
 import { TopBar } from "@/components/top-bar";
@@ -37,7 +37,6 @@ export default async function WorkspaceParametersPage({
       (status === "all" || (status === "active") === p.isActive) &&
       (!q || p.name.toLowerCase().includes(q) || p.key.includes(q)),
   );
-  const filtered = Boolean(q) || status !== "all";
 
   return (
     <>
@@ -108,34 +107,23 @@ export default async function WorkspaceParametersPage({
             <p className="text-sm text-muted">This workspace has the most labels allowed. Deactivate unused ones instead.</p>
           ) : null}
           <div className="flex flex-wrap items-center justify-end gap-3">
-            <form className="flex flex-wrap items-center gap-2" role="search">
-              <input
-                name="q"
-                defaultValue={query.q ?? ""}
-                placeholder="Search name or key"
-                aria-label="Search labels"
-                className="field h-9 w-56 py-1.5"
-              />
-              <FormSelect
-                name="status"
-                defaultValue={status}
-                options={[
-                  { value: "all", label: "All statuses" },
-                  { value: "active", label: "Active" },
-                  { value: "inactive", label: "Inactive" },
-                ]}
-                placeholder="Status"
-                ariaLabel="Status"
-              />
-              <button type="submit" className="rounded-full border border-line bg-paper px-4 py-1.5 text-sm font-semibold hover:border-teal">
-                Filter
-              </button>
-              {filtered ? (
-                <a href={`/workspaces/${id}/parameters`} className="text-sm text-teal">
-                  Clear
-                </a>
-              ) : null}
-            </form>
+            <ListFilters
+              action={`/workspaces/${id}/parameters`}
+              search={{ value: query.q ?? "", placeholder: "Search name or key", label: "Search labels" }}
+              filters={[
+                {
+                  name: "status",
+                  label: "Status",
+                  defaultValue: "all",
+                  value: status,
+                  options: [
+                    { value: "all", label: "All statuses" },
+                    { value: "active", label: "Active" },
+                    { value: "inactive", label: "Inactive" },
+                  ],
+                },
+              ]}
+            />
           </div>
 
           {all.length === 0 ? (

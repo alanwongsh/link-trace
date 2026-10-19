@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   foreignKey,
   index,
   integer,
@@ -67,6 +68,8 @@ export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().default(uuidV7),
   name: text("name").notNull().unique("workspaces_name_key"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  // IANA zone whose local midnight starts this workspace's report days (lib/timezones.ts).
+  timezone: text("timezone").notNull().default("Asia/Kuala_Lumpur"),
 });
 
 export const memberships = pgTable(
@@ -169,8 +172,77 @@ export const clicks = pgTable(
       foreignColumns: [placements.id],
     }).onDelete("set null"),
     index("clicks_placement_id_idx").on(table.placementId),
+    // Lets the daily rollup read one day's clicks across every link.
+    index("clicks_clicked_at_idx").on(table.clickedAt),
   ],
 );
+
+// Daily totals, so pages read days instead of every click. A day is a local date in the link's
+// workspace timezone. Filled by the click-rollup job (lib/click-rollup.ts) for finished days; days
+// after rollup_progress.through for that zone are read from clicks. visitors (and ips) are
+// distinct per day, so summing days counts a returning visitor once per day.
+
+// Human clicks per link and labelled link (null for the main link) and day.
+export const clickDaily = pgTable(
+  "click_daily",
+  {
+    linkId: uuid("link_id").notNull(),
+    placementId: uuid("placement_id"),
+    day: date("day", { mode: "string" }).notNull(),
+    clicks: integer("clicks").notNull(),
+    visitors: integer("visitors").notNull(),
+  },
+  (table) => [
+    foreignKey({ name: "click_daily_link_id_fkey", columns: [table.linkId], foreignColumns: [links.id] }).onDelete("cascade"),
+    foreignKey({ name: "click_daily_placement_id_fkey", columns: [table.placementId], foreignColumns: [placements.id] }).onDelete(
+      "cascade",
+    ),
+    index("click_daily_link_day_idx").on(table.linkId, table.day),
+  ],
+);
+
+// Per link and day: human clicks, visitors and IPs, and bot clicks.
+export const clickDailyLink = pgTable(
+  "click_daily_link",
+  {
+    linkId: uuid("link_id").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    clicks: integer("clicks").notNull(),
+    visitors: integer("visitors").notNull(),
+    ips: integer("ips").notNull(),
+    botClicks: integer("bot_clicks").notNull(),
+  },
+  (table) => [
+    foreignKey({ name: "click_daily_link_link_id_fkey", columns: [table.linkId], foreignColumns: [links.id] }).onDelete("cascade"),
+    index("click_daily_link_link_day_idx").on(table.linkId, table.day),
+  ],
+);
+
+// Per link, day and one value of a dimension: tag, country or referrer ("" when the click had none).
+export const clickDailyDim = pgTable(
+  "click_daily_dim",
+  {
+    linkId: uuid("link_id").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    dim: text("dim").notNull(),
+    value: text("value").notNull(),
+    clicks: integer("clicks").notNull(),
+    visitors: integer("visitors").notNull(),
+  },
+  (table) => [
+    foreignKey({ name: "click_daily_dim_link_id_fkey", columns: [table.linkId], foreignColumns: [links.id] }).onDelete("cascade"),
+    index("click_daily_dim_link_day_idx").on(table.linkId, table.dim, table.day),
+    check("click_daily_dim_dim_check", sql`${table.dim} in ('tag', 'country', 'referrer')`),
+  ],
+);
+
+// How far each rollup has got, per timezone ("daily:Asia/Kuala_Lumpur"): the daily tables hold
+// every finished local day up to and including through for links in workspaces on that zone.
+export const rollupProgress = pgTable("rollup_progress", {
+  name: text("name").primaryKey(),
+  through: date("through", { mode: "string" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
 
 
 // A workspace's own labels for placements, such as store_code or booth_id. Values are rows, never columns.
@@ -245,6 +317,9 @@ export const placements = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     // The bulk upload that made this placement, if any.
     bulkJobId: uuid("bulk_job_id"),
+    // Its name and labels as one string (lib/label-key.ts), unique among a link's active placements
+    // so two cannot be told apart. Null on older duplicates that were active before the rule.
+    labelKey: text("label_key"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
@@ -264,6 +339,7 @@ export const placements = pgTable(
     index("placements_bulk_job_id_idx").on(table.bulkJobId),
     uniqueIndex("placements_code_key").on(table.code),
     uniqueIndex("placements_link_legacy_tag_key").on(table.linkId, table.legacyTag),
+    uniqueIndex("placements_active_label_key").on(table.linkId, table.labelKey).where(sql`${table.isActive}`),
     check("placements_code_format", sql`${table.code} ~ '^[a-z0-9]{6,16}$'`),
   ],
 );

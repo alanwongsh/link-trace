@@ -11,8 +11,8 @@ export function Stat({ label, value, hint }: { label: string; value: number; hin
 }
 
 // One bar per day. Hovering or focusing a bar shows its date and count; a hidden table gives
-// screen readers the same numbers.
-export function DailyBars({ days, label }: { days: { day: string; clicks: number }[]; label: string }) {
+// screen readers the same numbers. zone names the timezone the days are counted in, such as "GMT+8".
+export function DailyBars({ days, label, zone }: { days: { day: string; clicks: number }[]; label: string; zone: string }) {
   const max = Math.max(...days.map((day) => day.clicks), 0);
   return (
     <figure>
@@ -41,7 +41,7 @@ export function DailyBars({ days, label }: { days: { day: string; clicks: number
         <caption>{label}</caption>
         <thead>
           <tr>
-            <th scope="col">Day (UTC)</th>
+            <th scope="col">Day ({zone})</th>
             <th scope="col">Clicks</th>
           </tr>
         </thead>

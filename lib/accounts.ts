@@ -189,6 +189,10 @@ export async function insertWorkspace(name: string): Promise<{ id: string } | "d
   }
 }
 
+export async function setWorkspaceTimezone(id: string, timezone: string): Promise<void> {
+  await db().update(workspaces).set({ timezone }).where(eq(workspaces.id, id));
+}
+
 export async function renameWorkspace(id: string, name: string): Promise<"ok" | "duplicate"> {
   try {
     await db().update(workspaces).set({ name }).where(eq(workspaces.id, id));

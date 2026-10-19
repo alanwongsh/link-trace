@@ -71,6 +71,27 @@
       "when": 1792372251120,
       "tag": "0009_bulk_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792383709290,
+      "tag": "0010_click_daily",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792388439346,
+      "tag": "0011_timezones_daily_totals",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792390322168,
+      "tag": "0012_placement_label_key",
+      "breakpoints": true
     }
   ]
 }

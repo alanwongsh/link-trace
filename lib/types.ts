@@ -59,6 +59,8 @@ export type LinkDetail = {
   countries: { country: string; clicks: number }[];
   referrers: { referrer: string; clicks: number }[];
   recent: RecentClick[];
+  // The workspace timezone that today, the last 7 days and daily are counted in.
+  timezone: string;
 };
 
 export type CreateState = {
@@ -97,6 +99,8 @@ export type PlacementState = {
   // Set when several placements were queued instead; their zip appears on the link's page.
   queuedCount?: number;
   queuedJobId?: string;
+  // Picked combinations left out because an active labelled link already has those labels.
+  skippedCount?: number;
 };
 
 export type BulkState = {
@@ -104,6 +108,8 @@ export type BulkState = {
   // After a check: rows ready to create, and the problems found (first ones only).
   checked: boolean;
   ready: number;
+  // Rows left out because an active labelled link (or an earlier row) has the same labels.
+  skipped: number;
   problems: { line: number; message: string }[];
   problemCount: number;
   // Up to five rows as "label: value" lists, to confirm the columns were read correctly.

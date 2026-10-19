@@ -114,7 +114,7 @@ describe("bulk uploads", () => {
   let workspaceId: string;
   let otherWorkspaceId: string;
   let linkId: string;
-  const empty = { error: "", checked: false, ready: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
+  const empty = { error: "", checked: false, ready: 0, skipped: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
 
   beforeEach(async () => {
     await resetData();
@@ -148,6 +148,22 @@ describe("bulk uploads", () => {
     expect(result.sample[0]).toEqual(["Name: Door", "Store: KL001"]);
     expect(await db().select().from(bulkJobs)).toEqual([]);
     expect(queued).toEqual([]);
+  });
+
+  it("skips rows that already exist or repeat, counting them in the check", async () => {
+    await runBulkJob(sql, await queue());
+    // Door · KL001 exists now; the repeated Kiosk row counts once; names compare regardless of case.
+    const again = "name,store_code\ndoor,kl001\nKiosk,PG002\nKiosk,PG002";
+    const checked = await bulkPlacements(empty, form({ slug: "promo", csv: again, intent: "check" }));
+    expect(checked).toMatchObject({ ready: 1, skipped: 2, problemCount: 0 });
+    expect(checked.sample).toEqual([["Name: Kiosk", "Store: PG002"]]);
+
+    const created = await bulkPlacements(empty, form({ slug: "promo", csv: again, intent: "create" }));
+    await runBulkJob(sql, created.jobId);
+    expect((await listPlacements(linkId)).map((p) => p.name)).toEqual(["Door", "Till", null, "Kiosk"]);
+    expect((await bulkPlacements(empty, form({ slug: "promo", csv: again, intent: "create" }))).error).toBe(
+      "Every row already exists, so there is nothing to add.",
+    );
   });
 
   it("does not queue a file with problems", async () => {

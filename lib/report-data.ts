@@ -1,7 +1,10 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
+import { after } from "next/server";
+import { dailyScope, withinDays } from "@/lib/daily-totals";
 import { getDb, type Db } from "@/lib/db";
+import { enqueue, jobsRunInline } from "@/lib/queue";
 
 function db(): Db {
   const config = getDb();
@@ -62,19 +65,44 @@ export type LinkReport = {
   truncated: boolean;
 };
 
+// The inline queue has no schedule, so a page that finds a timezone's yesterday not yet totalled
+// starts the rollup after it responds. Pages are right either way; this only keeps them fast. A
+// worker runs click-rollup hourly by itself.
+export async function keepRollupCurrent(): Promise<void> {
+  if (!jobsRunInline()) return;
+  const [row] = await db().execute<{ behind: boolean }>(sql`
+    select exists (
+      select 1 from (select distinct timezone from workspaces) z
+      left join rollup_progress p on p.name = 'daily:' || z.timezone
+      where coalesce(p.through, date '1970-01-01') < (now() at time zone z.timezone)::date - 1
+    ) as behind`);
+  if (!row?.behind) return;
+  after(() => enqueue("click-rollup", {}).catch((error) => console.error("click-rollup failed:", error)));
+}
+
+// Human clicks and daily visitors per labelled link (placement_id null for the main link) for the
+// last `days` local days including today, or all time. See dailyScope for where they come from.
+export function perPlacementTotals(linkId: string, days: number | null) {
+  return sql`
+    with ${dailyScope(sql`l.id = ${linkId}`)}
+    select placement_id, sum(clicks)::int as clicks, sum(visitors)::int as visitors
+    from placement_days where ${withinDays(days)}
+    group by placement_id`;
+}
+
 // Human visits to one link in the range, grouped by the given parameters (ids, in order). Each
 // visit takes the values of the labelled link it came through; inactive parameters still report.
+// Visitors are distinct per day and summed, so a visitor coming back on another day counts again.
 export async function linkReport(
   linkId: string,
   parameterIds: string[],
   range: ReportRange,
   limit = REPORT_ROW_LIMIT,
 ): Promise<LinkReport> {
-  const days = REPORT_RANGES[range];
-  const since = days === null ? sql`true` : sql`c.clicked_at >= now() - make_interval(days => ${days})`;
+  const totalsByPlacement = perPlacementTotals(linkId, REPORT_RANGES[range]);
   const joins = parameterIds.map(
     (id, i) => sql`
-      left join placement_values ${sql.raw(`v${i}`)} on ${sql.raw(`v${i}`)}.placement_id = c.placement_id
+      left join placement_values ${sql.raw(`v${i}`)} on ${sql.raw(`v${i}`)}.placement_id = p.placement_id
         and ${sql.raw(`v${i}`)}.parameter_id = ${id}
       left join tracking_parameter_options ${sql.raw(`o${i}`)} on ${sql.raw(`o${i}`)}.id = ${sql.raw(`v${i}`)}.option_id`,
   );
@@ -84,19 +112,18 @@ export async function linkReport(
   ]);
   const groups = parameterIds.flatMap((_, i) => [sql.raw(`v${i}.value`), sql.raw(`o${i}.label`)]);
 
-  const [rows, [totals]] = await Promise.all([
-    db().execute<Record<string, string | number | boolean | null>>(sql`
-      select ${sql.join([...columns, sql`c.placement_id is null as direct`], sql`, `)},
-        count(*)::int as clicks, count(distinct c.visitor_id)::int as visitors
-      from clicks c ${sql.join(joins, sql` `)}
-      where c.link_id = ${linkId} and not c.is_bot and ${since}
-      group by ${sql.join([...groups, sql`c.placement_id is null`], sql`, `)}
-      order by clicks desc, visitors desc
-      limit ${limit + 1}`),
-    db().execute<{ clicks: number; visitors: number }>(sql`
-      select count(*)::int as clicks, count(distinct c.visitor_id)::int as visitors
-      from clicks c where c.link_id = ${linkId} and not c.is_bot and ${since}`),
-  ]);
+  // One query: the per-labelled-link totals are small (one row per labelled link), then grouped.
+  const rows = await db().execute<Record<string, string | number | boolean | null>>(sql`
+    with p as (${totalsByPlacement})
+    select ${sql.join([...columns, sql`p.placement_id is null as direct`], sql`, `)},
+      sum(p.clicks)::int as clicks, sum(p.visitors)::int as visitors,
+      (sum(sum(p.clicks)) over ())::int as total_clicks, (sum(sum(p.visitors)) over ())::int as total_visitors
+    from p ${sql.join(joins, sql` `)}
+    where p.clicks > 0
+    group by ${sql.join([...groups, sql`p.placement_id is null`], sql`, `)}
+    order by clicks desc, visitors desc
+    limit ${limit + 1}`);
+  const totals = { clicks: Number(rows[0]?.total_clicks ?? 0), visitors: Number(rows[0]?.total_visitors ?? 0) };
 
   return {
     rows: [...rows].slice(0, limit).map((row) => ({

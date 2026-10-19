@@ -17,10 +17,13 @@ import {
   renameWorkspace,
   setMembership,
   updateUser,
+  setWorkspaceTimezone,
 } from "@/lib/accounts";
 import { requireOrgAdmin, type SessionUser } from "@/lib/auth";
+import { queueRebuild } from "@/lib/daily-totals";
 import { hashPassword, passwordProblem } from "@/lib/password";
 import { isRole } from "@/lib/roles";
+import { isTimezone, timezoneLabel } from "@/lib/timezones";
 import type { FormState } from "@/lib/types";
 
 // Every action here is for org admins only.
@@ -185,6 +188,30 @@ export async function updateWorkspaceName(_prev: FormState, formData: FormData):
   revalidatePath("/admin/workspaces");
   revalidatePath(`/admin/workspaces/${workspaceId}`);
   return done("Saved.");
+}
+
+// The zone whose local midnight starts this workspace's report days. Changing it redoes the
+// workspace's daily totals in the background, so past days move to the new boundaries.
+export async function updateWorkspaceTimezone(_prev: FormState, formData: FormData): Promise<FormState> {
+  const admin = await requireOrgAdmin();
+  const workspaceId = id(formData.get("workspace_id"));
+  const timezone = String(formData.get("timezone") ?? "").trim();
+  if (!workspaceId) return failed("Workspace not found.");
+  if (!isTimezone(timezone)) return failed("Choose a timezone from the list.");
+  const workspace = await findWorkspace(workspaceId);
+  if (!workspace) return failed("Workspace not found.");
+  if (workspace.timezone === timezone) return done("Saved.");
+
+  await setWorkspaceTimezone(workspaceId, timezone);
+  queueRebuild({ workspaceId });
+  await audit({
+    actor: actor(admin),
+    action: "workspace.timezone",
+    workspaceId,
+    details: { before: workspace.timezone, after: timezone },
+  });
+  revalidatePath(`/admin/workspaces/${workspaceId}`);
+  return done(`Saved. Reports now count days in ${timezoneLabel(timezone)}; past days are being recounted.`);
 }
 
 export async function removeWorkspace(_prev: FormState, formData: FormData): Promise<FormState> {

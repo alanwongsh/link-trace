@@ -133,7 +133,10 @@ describe("creating placements", () => {
   });
 
   it("gives every placement a unique code when created at the same time", async () => {
-    const results = await Promise.all(Array.from({ length: 12 }, () => createPlacement(empty, form({ slug: "promo" }))));
+    // Different names, so none is a duplicate of another.
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => createPlacement(empty, form({ slug: "promo", name: `Spot ${i}` }))),
+    );
     expect(results.every((r) => r.error === "")).toBe(true);
     expect(new Set(results.map((r) => r.code)).size).toBe(12);
   });
@@ -275,6 +278,65 @@ describe("several values for one label", () => {
     ]);
     const [job] = await sql<{ status: string; total: number }[]>`select status, total from bulk_jobs where id = ${result.queuedJobId!}`;
     expect(job).toEqual({ status: "done", total: 2 });
+  });
+});
+
+describe("one active labelled link per set of labels", () => {
+  it("refuses a duplicate, ignoring case, and names the existing one", async () => {
+    await addStoreParameter();
+    const first = await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001", "param:booth": "B1" }));
+    expect(first.error).toBe("");
+    const again = await createPlacement(empty, form({ slug: "promo", "param:store_code": "kl001", "param:booth": "b1" }));
+    expect(again.error).toBe(`A labelled link with these labels already exists: /q/${first.code}. Deactivate it first to replace it.`);
+    // A different set of labels is fine, even if it only drops one.
+    expect((await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }))).error).toBe("");
+    expect(await listPlacements(linkId)).toHaveLength(2);
+  });
+
+  it("lets only one of two identical creates at the same moment through", async () => {
+    await addStoreParameter();
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }))),
+    );
+    expect(results.filter((r) => r.error === "")).toHaveLength(1);
+    expect(results.filter((r) => r.error.startsWith("A labelled link with these labels already exists"))).toHaveLength(3);
+    expect(await listPlacements(linkId)).toHaveLength(1);
+  });
+
+  it("does not activate one while another active one has the same labels", async () => {
+    await addStoreParameter();
+    await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }));
+    const [old] = await listPlacements(linkId);
+    await setPlacementStatus({ error: "", ok: "" }, form({ placement_id: old.id, is_active: "false" }));
+    const replacement = await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }));
+    const back = await setPlacementStatus({ error: "", ok: "" }, form({ placement_id: old.id, is_active: "true" }));
+    expect(back.error).toBe(
+      `It cannot be activated: /q/${replacement.code} has the same labels. Deactivate that one first.`,
+    );
+  });
+
+  it("lets a deactivated one be replaced", async () => {
+    await addStoreParameter();
+    const first = await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }));
+    const [row] = await listPlacements(linkId);
+    await setPlacementStatus({ error: "", ok: "" }, form({ placement_id: row.id, is_active: "false" }));
+    const second = await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001" }));
+    expect(second.error).toBe("");
+    expect(second.code).not.toBe(first.code);
+  });
+
+  it("skips existing ones in a batch, and refuses a batch that is all duplicates", async () => {
+    await addStoreParameter();
+    await createPlacement(empty, form({ slug: "promo", "param:store_code": "PG002" }));
+    const both = () => {
+      const data = form({ slug: "promo" });
+      data.append("param:store_code", "KL001");
+      data.append("param:store_code", "PG002");
+      return data;
+    };
+    const result = await createPlacement(empty, both());
+    expect(result).toMatchObject({ error: "", code: expect.stringMatching(/^[a-z0-9]{8}$/), skippedCount: 1 });
+    expect((await createPlacement(empty, both())).error).toBe("All 2 already exist, so there is nothing to add.");
   });
 });
 

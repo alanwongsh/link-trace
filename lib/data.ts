@@ -1,8 +1,9 @@
 import "server-only";
 
-import { aliasedTable, and, desc, eq, getViewSelectedFields, inArray, sql, type SQL } from "drizzle-orm";
+import { aliasedTable, and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { dailyScope } from "@/lib/daily-totals";
 import { getDb } from "@/lib/db";
-import { clicks, linkSummaries, links, placements, users, workspaces } from "@/lib/db/schema";
+import { clicks, links, placements, users, workspaces } from "@/lib/db/schema";
 import type { ClickDraft } from "@/lib/track";
 import {
   schemaProblem,
@@ -10,6 +11,7 @@ import {
   type LinkDetail,
   type LinkKind,
   type LinkSummary,
+  type RecentClick,
   type Result,
 } from "@/lib/types";
 
@@ -52,27 +54,29 @@ export async function listLinks(filter: {
   if (!config.ok) return unavailable(config);
   if (filter.workspaceIds !== "all" && filter.workspaceIds.length === 0) return { ok: true, data: [] };
 
-  const conditions: SQL[] = [];
-  if (filter.workspaceIds !== "all") {
-    conditions.push(inArray(linkSummaries.workspace_id, filter.workspaceIds));
-  }
-  if (filter.createdBy) conditions.push(eq(linkSummaries.created_by, filter.createdBy));
+  const where = linkScope(filter);
 
+  // Counts come from the daily totals (all time); visitors and IPs are distinct per day, summed.
   try {
-    const rows = await config.db
-      .select({
-        ...getViewSelectedFields(linkSummaries),
-        workspace_name: workspaces.name,
-        created_by_name: users.name,
-      })
-      .from(linkSummaries)
-      .innerJoin(workspaces, eq(workspaces.id, linkSummaries.workspace_id))
-      .leftJoin(users, eq(users.id, linkSummaries.created_by))
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(linkSummaries.created_at));
+    const rows = await config.db.execute<LinkSummary>(sql`
+      with ${dailyScope(where)},
+      totals as (
+        select link_id, sum(clicks)::int as clicks, sum(visitors)::int as visitors, sum(ips)::int as ips
+        from link_days group by link_id
+      )
+      select l.id, l.slug, l.kind, l.url, l.title, coalesce(l.tags, '{}') as tags,
+        to_json(l.created_at) #>> '{}' as created_at,
+        coalesce(t.clicks, 0) as click_count, coalesce(t.visitors, 0) as visitor_count, coalesce(t.ips, 0) as ip_count,
+        l.workspace_id, w.name as workspace_name, l.created_by, u.name as created_by_name
+      from links l
+      join workspaces w on w.id = l.workspace_id
+      left join users u on u.id = l.created_by
+      left join totals t on t.link_id = l.id
+      where ${where}
+      order by l.created_at desc`);
     return {
       ok: true,
-      data: rows.map((link) => ({ ...link, tags: link.tags ?? [] })),
+      data: rows.map((link) => ({ ...link, kind: link.kind === "page" ? "page" : "redirect", tags: link.tags ?? [] })),
     };
   } catch (error) {
     return fail(error, "Could not load links.");
@@ -269,39 +273,110 @@ export async function insertClick(
   }
 }
 
+// Days shown on a link's daily chart.
+const DETAIL_DAYS = 14;
+// Rows kept from each breakdown, and recent clicks listed.
+const DETAIL_COUNTRIES = 50;
+const DETAIL_REFERRERS = 8;
+const DETAIL_RECENT = 50;
+
+type TotalsRow = { clicks: number; visitors: number; ips: number; bot_clicks: number; today: number; week: number };
+
+// A link's overview, from the daily totals (see lib/daily-totals.ts) in its workspace timezone.
+// Only the recent clicks list reads clicks directly: the newest 50 rows through an index.
 export async function loadDetail(slug: string): Promise<Result<LinkDetail | null>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
 
   try {
-    const rows = await config.db.execute<{ detail: LinkDetail | string | null }>(
-      sql`select link_detail(${slug}) as detail`,
-    );
-    const data = rows[0]?.detail;
-    if (!data) return { ok: true, data: null };
-    const parsed = typeof data === "string" ? (JSON.parse(data) as LinkDetail) : data;
-    return { ok: true, data: normalizeDetail(parsed) };
+    const [link] = await config.db.execute<LinkDetail["link"] & { timezone: string }>(sql`
+      select l.id, l.slug, l.kind, l.url, l.title, coalesce(l.tags, '{}') as tags,
+        to_json(l.created_at) #>> '{}' as created_at, w.timezone
+      from links l join workspaces w on w.id = l.workspace_id where l.slug = ${slug}`);
+    if (!link) return { ok: true, data: null };
+
+    const scope = dailyScope(sql`l.id = ${link.id}`);
+    const [[totals], daily, dims, recent] = await Promise.all([
+      config.db.execute<TotalsRow>(sql`with ${scope} ${totalsSelect}`),
+      config.db.execute<{ day: string; clicks: number }>(sql`
+        with ${scope}
+        select to_char(s.day, 'YYYY-MM-DD') as day, coalesce(sum(d.clicks), 0)::int as clicks
+        from lz cross join generate_series(lz.today - ${DETAIL_DAYS - 1}::int, lz.today, interval '1 day') s(day)
+        left join link_days d on d.day = s.day::date
+        group by s.day order by s.day`),
+      config.db.execute<{ dim: string; value: string; clicks: number; visitors: number }>(sql`
+        with ${scope}
+        select dim, value, sum(clicks)::int as clicks, sum(visitors)::int as visitors from dim_days group by dim, value`),
+      config.db.execute<RecentClick>(sql`
+        select visitor_id, ip, user_agent, referrer, country, region, city, is_bot, tag,
+          to_json(clicked_at) #>> '{}' as clicked_at
+        from clicks where link_id = ${link.id} order by clicked_at desc limit ${DETAIL_RECENT}`),
+    ]);
+
+    const of = (dim: string) => dims.filter((d) => d.dim === dim);
+    const byTag = new Map(of("tag").map((d) => [d.value, d]));
+    const tags = Array.isArray(link.tags) ? link.tags : [];
+    // Ties in a stable order, so the list does not shuffle between loads.
+    const top = <T extends { value: string; clicks: number }>(rows: T[], limit: number) =>
+      [...rows].sort((a, b) => b.clicks - a.clicks || a.value.localeCompare(b.value)).slice(0, limit);
+
+    return {
+      ok: true,
+      data: {
+        link: {
+          id: link.id,
+          slug: link.slug,
+          kind: link.kind === "page" ? "page" : "redirect",
+          url: link.url,
+          title: link.title,
+          tags,
+          created_at: link.created_at,
+        },
+        untagged_clicks: byTag.get("")?.clicks ?? 0,
+        untagged_visitors: byTag.get("")?.visitors ?? 0,
+        tag_stats: tags
+          .map((tag) => ({ tag, clicks: byTag.get(tag)?.clicks ?? 0, visitors: byTag.get(tag)?.visitors ?? 0 }))
+          .sort((a, b) => b.clicks - a.clicks || a.tag.localeCompare(b.tag)),
+        total_clicks: totals?.clicks ?? 0,
+        unique_visitors: totals?.visitors ?? 0,
+        unique_ips: totals?.ips ?? 0,
+        clicks_today: totals?.today ?? 0,
+        clicks_7d: totals?.week ?? 0,
+        bot_clicks: totals?.bot_clicks ?? 0,
+        daily: [...daily],
+        countries: top(of("country"), DETAIL_COUNTRIES).map((d) => ({
+          country: d.value || "Unknown",
+          clicks: d.clicks,
+        })),
+        referrers: top(of("referrer"), DETAIL_REFERRERS).map((d) => ({
+          referrer: d.value || "Direct",
+          clicks: d.clicks,
+        })),
+        recent: recent.map((click) => ({ ...click, tag: click.tag ?? null })),
+        timezone: link.timezone,
+      },
+    };
   } catch (error) {
     return fail(error, "Could not load stats.");
   }
 }
 
-function normalizeDetail(detail: LinkDetail): LinkDetail {
-  return {
-    ...detail,
-    link: {
-      ...detail.link,
-      kind: detail.link?.kind === "page" ? "page" : "redirect",
-      tags: Array.isArray(detail.link?.tags) ? detail.link.tags : [],
-    },
-    tag_stats: Array.isArray(detail.tag_stats) ? detail.tag_stats : [],
-    untagged_clicks: detail.untagged_clicks ?? 0,
-    untagged_visitors: detail.untagged_visitors ?? 0,
-    recent: (detail.recent ?? []).map((click) => ({
-      ...click,
-      tag: click.tag ?? null,
-    })),
-  };
+// Totals over link_days: all time, plus today and the last 7 days in each link's own zone.
+const totalsSelect = sql`
+  select coalesce(sum(clicks), 0)::int as clicks, coalesce(sum(visitors), 0)::int as visitors,
+    coalesce(sum(ips), 0)::int as ips, coalesce(sum(bot_clicks), 0)::int as bot_clicks,
+    coalesce(sum(clicks) filter (where day = today), 0)::int as today,
+    coalesce(sum(clicks) filter (where day >= today - 6), 0)::int as week
+  from link_days`;
+
+// The links a dashboard or list covers, as a condition on l and w for dailyScope.
+function linkScope(filter: { workspaceIds: string[] | "all"; createdBy?: string }): SQL {
+  const conditions: SQL[] = [];
+  if (filter.workspaceIds !== "all") {
+    conditions.push(sql`l.workspace_id in (${sql.join(filter.workspaceIds.map((id) => sql`${id}`), sql`, `)})`);
+  }
+  if (filter.createdBy) conditions.push(sql`l.created_by = ${filter.createdBy}`);
+  return conditions.length ? sql.join(conditions, sql` and `) : sql`true`;
 }
 
 export type DashboardSummary = {
@@ -313,10 +388,13 @@ export type DashboardSummary = {
   daily: { day: string; clicks: number }[];
   tags: { tag: string; clicks: number }[];
   countries: { country: string; clicks: number }[];
+  // The workspace timezones the covered links count their days in.
+  timezones: string[];
 };
 
-// Totals across every link the filter covers. Same rules as link_detail(): bots are left out
-// of everything except botClicks, and days are grouped in UTC.
+// Totals across every link the filter covers, from the daily totals. Bots are left out of
+// everything except botClicks. Each link counts its days (today, 7 days, the chart) in its own
+// workspace's timezone; the chart runs up to the latest of those todays.
 export async function loadDashboard(filter: {
   workspaceIds: string[] | "all";
   createdBy?: string;
@@ -326,62 +404,44 @@ export async function loadDashboard(filter: {
   if (!config.ok) return unavailable(config);
   const days = filter.days ?? 30;
   const empty: DashboardSummary = {
-    clicks: 0, visitors: 0, clicks7d: 0, clicksToday: 0, botClicks: 0, daily: [], tags: [], countries: [],
+    clicks: 0, visitors: 0, clicks7d: 0, clicksToday: 0, botClicks: 0, daily: [], tags: [], countries: [], timezones: [],
   };
   if (filter.workspaceIds !== "all" && filter.workspaceIds.length === 0) return { ok: true, data: empty };
-
-  const conditions: SQL[] = [];
-  if (filter.workspaceIds !== "all") conditions.push(inArray(links.workspaceId, filter.workspaceIds));
-  if (filter.createdBy) conditions.push(eq(links.createdBy, filter.createdBy));
-  const where = conditions.length ? sql`where ${and(...conditions)}` : sql``;
-  const scoped = sql`select ${clicks.id} as id, ${clicks.visitorId} as visitor_id, ${clicks.tag} as tag,
-    ${clicks.country} as country, ${clicks.isBot} as is_bot, ${clicks.clickedAt} as clicked_at
-    from ${clicks} inner join ${links} on ${links.id} = ${clicks.linkId} ${where}`;
+  const scope = dailyScope(linkScope(filter));
 
   try {
-    const [totals, daily, tags, countries] = await Promise.all([
-      config.db.execute<{ clicks: number; visitors: number; clicks_7d: number; clicks_today: number; bot_clicks: number }>(sql`
-        with s as (${scoped})
-        select
-          count(*) filter (where not is_bot)::int as clicks,
-          count(distinct visitor_id) filter (where not is_bot)::int as visitors,
-          count(*) filter (where not is_bot and clicked_at >= now() - interval '7 days')::int as clicks_7d,
-          count(*) filter (where not is_bot and (clicked_at at time zone 'utc') >= date_trunc('day', now() at time zone 'utc'))::int as clicks_today,
-          count(*) filter (where is_bot)::int as bot_clicks
-        from s`),
+    const [[totals], daily, dims, zones] = await Promise.all([
+      config.db.execute<TotalsRow>(sql`with ${scope} ${totalsSelect}`),
       config.db.execute<{ day: string; clicks: number }>(sql`
-        with s as (${scoped}), h as (select clicked_at from s where not is_bot
-          and clicked_at >= (date_trunc('day', now() at time zone 'utc') - make_interval(days => ${days - 1})) at time zone 'utc')
-        select to_char(series.day, 'YYYY-MM-DD') as day, count(h.clicked_at)::int as clicks
-        from generate_series(
-          date_trunc('day', now() at time zone 'utc') - make_interval(days => ${days - 1}),
-          date_trunc('day', now() at time zone 'utc'),
-          interval '1 day'
-        ) as series(day)
-        left join h on (h.clicked_at at time zone 'utc') >= series.day
-          and (h.clicked_at at time zone 'utc') < series.day + interval '1 day'
-        group by series.day order by series.day`),
-      config.db.execute<{ tag: string; clicks: number }>(sql`
-        with s as (${scoped})
-        select coalesce(tag, '') as tag, count(*)::int as clicks from s where not is_bot
-        group by 1 order by 2 desc, 1 limit 8`),
-      config.db.execute<{ country: string; clicks: number }>(sql`
-        with s as (${scoped})
-        select coalesce(country, 'Unknown') as country, count(*)::int as clicks from s where not is_bot
-        group by 1 order by 2 desc, 1 limit 8`),
+        with ${scope}, last as (select coalesce(max(today), (now() at time zone 'utc')::date) as day from lz)
+        select to_char(s.day, 'YYYY-MM-DD') as day, coalesce(sum(d.clicks), 0)::int as clicks
+        from last cross join generate_series(last.day - ${days - 1}::int, last.day, interval '1 day') s(day)
+        left join link_days d on d.day = s.day::date
+        group by s.day order by s.day`),
+      config.db.execute<{ dim: string; value: string; clicks: number }>(sql`
+        with ${scope}
+        select dim, value, sum(clicks)::int as clicks from dim_days where dim in ('tag', 'country')
+        group by dim, value`),
+      config.db.execute<{ tz: string }>(sql`with ${scope} select distinct tz from lz order by tz`),
     ]);
-    const t = totals[0];
+    const topEight = (dim: string, empty: string) =>
+      dims
+        .filter((d) => d.dim === dim)
+        .sort((a, b) => b.clicks - a.clicks || a.value.localeCompare(b.value))
+        .slice(0, 8)
+        .map((d) => ({ value: d.value || empty, clicks: d.clicks }));
     return {
       ok: true,
       data: {
-        clicks: t?.clicks ?? 0,
-        visitors: t?.visitors ?? 0,
-        clicks7d: t?.clicks_7d ?? 0,
-        clicksToday: t?.clicks_today ?? 0,
-        botClicks: t?.bot_clicks ?? 0,
+        clicks: totals?.clicks ?? 0,
+        visitors: totals?.visitors ?? 0,
+        clicks7d: totals?.week ?? 0,
+        clicksToday: totals?.today ?? 0,
+        botClicks: totals?.bot_clicks ?? 0,
         daily: [...daily],
-        tags: [...tags],
-        countries: [...countries],
+        tags: topEight("tag", "").map((d) => ({ tag: d.value, clicks: d.clicks })),
+        countries: topEight("country", "Unknown").map((d) => ({ country: d.value, clicks: d.clicks })),
+        timezones: zones.map((z) => z.tz),
       },
     };
   } catch (error) {

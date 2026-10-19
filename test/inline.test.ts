@@ -49,7 +49,7 @@ describe("inline queue (default)", () => {
     const [param] = await db().select().from(trackingParameters).where(eq(trackingParameters.key, "store_code"));
     await importOptions({ error: "", ok: "" }, form({ parameter_id: param.id, options: "KL001" }));
 
-    const empty = { error: "", checked: false, ready: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
+    const empty = { error: "", checked: false, ready: 0, skipped: 0, problems: [], problemCount: 0, sample: [], jobId: "" };
     const result = await bulkPlacements(empty, form({ slug: "promo", csv: "name,store_code\nDoor,KL001\nTill,", intent: "create" }));
     expect(result.error).toBe("");
     // The action has answered; the work runs in after().
