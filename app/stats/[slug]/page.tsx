@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { CopyButton } from "@/components/copy-button";
 import { EditTargetForm } from "@/components/edit-target-form";
+import { LinkReportView } from "@/components/link-report";
 import { LinkTarget } from "@/components/link-target";
 import { LocalTime } from "@/components/local-time";
 import { PagePreview } from "@/components/page-preview";
@@ -25,6 +26,7 @@ import { placementFields } from "@/lib/parameter-data";
 import { setPlacementStatus } from "@/lib/placement-actions";
 import { listPlacements } from "@/lib/placement-data";
 import { listBulkJobs } from "@/lib/bulk-data";
+import { linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
 import { jobsRunInline } from "@/lib/queue";
 import { appOrigin } from "@/lib/origin";
 import {
@@ -44,7 +46,7 @@ export default async function StatsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; by?: string; range?: string }>;
 }) {
   const user = await requireUser();
   const { slug } = await params;
@@ -107,11 +109,23 @@ export default async function StatsPage({
   const hasSettings = detail.link.kind === "page" || (Boolean(target) && isOwner) || moveTargets.length > 0;
   const tabs = [
     { key: "overview", label: "Overview" },
+    { key: "report", label: "Report" },
     { key: "links", label: "Labelled links", count: placementRows.length },
     ...(hasSettings ? [{ key: "settings", label: "Settings" }] : []),
   ];
   const tab = tabs.find((t) => t.key === query.tab)?.key ?? "overview";
   const tabHref = (key: string) => (key === "overview" ? `/stats/${detail.link.slug}` : `/stats/${detail.link.slug}?tab=${key}`);
+
+  // The report is only queried on its own tab.
+  const reportData =
+    tab === "report"
+      ? await (async () => {
+          const parameters = await reportParameters(detail.link.id);
+          const { groupBy, range } = readReportQuery(query, parameters, parameters.slice(0, 1));
+          const report = await linkReport(detail.link.id, groupBy.map((p) => p.id), range);
+          return { parameters, groupBy, range, report };
+        })()
+      : null;
 
   return (
     <>
@@ -232,6 +246,17 @@ export default async function StatsPage({
               )}
             </section>
           </>
+        ) : null}
+
+        {reportData ? (
+          <LinkReportView
+            slug={detail.link.slug}
+            parameters={reportData.parameters}
+            groupBy={reportData.groupBy}
+            range={reportData.range}
+            report={reportData.report}
+            labelledLinksHref={tabHref("links")}
+          />
         ) : null}
 
         {tab === "links" ? (
