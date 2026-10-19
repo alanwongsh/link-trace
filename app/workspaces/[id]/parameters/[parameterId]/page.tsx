@@ -45,18 +45,33 @@ export default async function ParameterPage({
       <main className="mx-auto grid max-w-5xl gap-8 px-6 py-10">
         <div className="grid gap-3">
           <a href={`/workspaces/${id}/parameters`} className="text-sm text-teal">
-            {workspace.name} parameters
+            {workspace.name} labels
           </a>
-          <div>
-            <h1 className="font-serif text-4xl tracking-tight">{parameter.name}</h1>
-            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-              <span className="font-mono text-ink">{parameter.key}</span>
-              <span>{PARAMETER_TYPE_LABELS[parameter.fieldType]}</span>
-              <span>{parameter.isRequired ? "Required" : "Optional"}</span>
-              <span className={parameter.isActive ? "text-teal" : "text-warn"}>
-                {parameter.isActive ? "Active" : "Inactive"}
-              </span>
-            </p>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="font-serif text-4xl tracking-tight">{parameter.name}</h1>
+              <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+                <span className="font-mono text-ink">{parameter.key}</span>
+                <span>{PARAMETER_TYPE_LABELS[parameter.fieldType]}</span>
+                <span className={parameter.isActive ? "text-teal" : "text-warn"}>
+                  {parameter.isActive ? "Active" : "Inactive · hidden when adding labelled links"}
+                </span>
+              </p>
+            </div>
+            <ActionForm
+              action={setParameterStatus}
+              submit={parameter.isActive ? "Deactivate" : "Activate"}
+              variant={parameter.isActive ? "danger" : "primary"}
+              confirm={
+                parameter.isActive
+                  ? `Deactivate ${parameter.name}? It is hidden when adding labelled links. Existing labelled links and reports keep it.`
+                  : undefined
+              }
+              inline
+            >
+              <input type="hidden" name="parameter_id" value={parameter.id} />
+              <input type="hidden" name="is_active" value={parameter.isActive ? "false" : "true"} />
+            </ActionForm>
           </div>
         </div>
 
@@ -85,10 +100,6 @@ export default async function ParameterPage({
                 className="field"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="is_required" defaultChecked={parameter.isRequired} />
-              Required when creating a placement
-            </label>
           </ActionForm>
         </section>
 
@@ -217,27 +228,6 @@ export default async function ParameterPage({
             </div>
           </section>
         ) : null}
-
-        <section className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="font-serif text-2xl">{parameter.isActive ? "Deactivate" : "Activate"}</h2>
-          <p className="mt-1 text-sm text-muted">
-            {parameter.isActive
-              ? "An inactive parameter is hidden from new placements. Existing placements and reports keep it. Parameters are never deleted."
-              : "Make it available on new placements again."}
-          </p>
-          <div className="mt-4">
-            <ActionForm
-              action={setParameterStatus}
-              submit={parameter.isActive ? "Deactivate" : "Activate"}
-              variant={parameter.isActive ? "danger" : "primary"}
-              confirm={parameter.isActive ? `Deactivate ${parameter.name}?` : undefined}
-              inline
-            >
-              <input type="hidden" name="parameter_id" value={parameter.id} />
-              <input type="hidden" name="is_active" value={parameter.isActive ? "false" : "true"} />
-            </ActionForm>
-          </div>
-        </section>
       </main>
     </>
   );

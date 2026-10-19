@@ -2,6 +2,7 @@ import { Breakdown, DailyBars, Stat } from "@/components/charts";
 import { CreateLinkForm, type WritableWorkspace } from "@/components/create-link-form";
 import { CopyButton } from "@/components/copy-button";
 import { QrButton } from "@/components/qr-button";
+import { RevealPanels } from "@/components/reveal-panels";
 import { DeleteLinkButton } from "@/components/delete-link-button";
 import { LinkTarget } from "@/components/link-target";
 import { SetupGuide } from "@/components/setup-guide";
@@ -62,64 +63,22 @@ export default async function HomePage({
   const defaultWorkspaceId = writable.some((w) => w.id === current) ? current : writable[0]?.id;
   const showWorkspace = current === "all" && visible.length > 1;
 
+  const ready = result.ok && visible.length > 0;
+
   return (
     <>
       <TopBar meta={meta} />
-      <main className="mx-auto grid max-w-5xl gap-8 px-6 py-10">
+      <main className="mx-auto grid max-w-5xl gap-10 px-6 py-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl">
             <h1 className="font-serif text-4xl tracking-tight">Dashboard</h1>
             <p className="mt-2 text-muted">
-              Visits across {current === "all" ? "your links" : "this workspace"}. Known bots are left out of the counts.
+              Your short links and how often people open them. Known bots are left out of the counts.
             </p>
           </div>
-          {result.ok && visible.length > 0 ? (
-            <WorkspaceFilter workspaces={filterOptions} current={current} mine={mine} />
-          ) : null}
+          {ready ? <WorkspaceFilter workspaces={filterOptions} current={current} mine={mine} /> : null}
         </div>
-        {result.ok && visible.length > 0 && summary ? (
-          <>
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
-              <Stat label="Links" value={links.length} hint={mine ? "Created by you" : "In this view"} />
-              <Stat label="Clicks" value={summary.clicks} hint={`${summary.clicks7d.toLocaleString("en")} in the last 7 days`} />
-              <Stat label="Visitors" value={summary.visitors} hint="Estimated from browser ids" />
-              <Stat
-                label="Today"
-                value={summary.clicksToday}
-                hint={`${summary.botClicks.toLocaleString("en")} bot hits left out`}
-              />
-            </section>
-            <section className="rounded-2xl border border-line bg-card p-5">
-              <h2 className="font-serif text-2xl">Last 30 days</h2>
-              <p className="mt-1 text-sm text-muted">Human visits per day, grouped in UTC. Hover a bar for its count.</p>
-              <DailyBars days={summary.daily} label="Human visits per day, last 30 days" />
-            </section>
-            <section className="grid gap-4 lg:grid-cols-3">
-              <Breakdown
-                title="Top links"
-                empty="No links yet."
-                rows={[...links]
-                  .filter((link) => link.click_count > 0)
-                  .sort((a, b) => b.click_count - a.click_count)
-                  .slice(0, 6)
-                  .map((link) => ({ label: link.title || link.slug, clicks: link.click_count, href: `/stats/${link.slug}` }))}
-              />
-              <Breakdown
-                title="Platforms"
-                rows={summary.tags.map((row) => ({ label: row.tag || "Untagged", clicks: row.clicks }))}
-              />
-              <Breakdown
-                title="Places"
-                rows={summary.countries.map((row) => ({
-                  label: row.country === "Unknown" ? "No location" : countryName(row.country),
-                  clicks: row.clicks,
-                }))}
-              />
-            </section>
-          </>
-        ) : !dashboard.ok && result.ok ? (
-          <p className="text-sm text-warn">{dashboard.message}</p>
-        ) : null}
+
         {!result.ok ? (
           result.missingConfig || result.missingSchema ? (
             <SetupGuide message={result.message} />
@@ -130,19 +89,52 @@ export default async function HomePage({
           <p className="empty-state">
             You are not in any workspace yet, so there are no links to show. Ask an org admin to add you.
           </p>
-        ) : defaultWorkspaceId ? (
-          <section className="grid gap-3">
-            <h2 className="font-serif text-2xl">Make a short link</h2>
-            <CreateLinkForm workspaces={writable} defaultWorkspaceId={defaultWorkspaceId} />
+        ) : null}
+
+        {ready && summary ? (
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
+            <Stat label="Links" value={links.length} hint={mine ? "Created by you" : "In this view"} />
+            <Stat label="Clicks" value={summary.clicks} hint={`${summary.clicks7d.toLocaleString("en")} in the last 7 days`} />
+            <Stat label="Visitors" value={summary.visitors} hint="Estimated from browser ids" />
+            <Stat
+              label="Today"
+              value={summary.clicksToday}
+              hint={`${summary.botClicks.toLocaleString("en")} bot hits left out`}
+            />
           </section>
-        ) : (
-          <p className="text-sm text-muted">
-            You can view links but not create them. Ask an org admin for the editor role.
-          </p>
-        )}
-        {result.ok && visible.length > 0 ? (
-          <section className="grid gap-3">
-            <h2 className="font-serif text-2xl">Links</h2>
+        ) : ready && !dashboard.ok ? (
+          <p className="text-sm text-warn">{dashboard.message}</p>
+        ) : null}
+
+        {ready ? (
+          <section className="grid gap-3" aria-labelledby="links-heading">
+            <RevealPanels
+              heading={
+                <>
+                  <h2 id="links-heading" className="panel-title">
+                    Links <span className="num text-base text-muted">{links.length}</span>
+                  </h2>
+                  {defaultWorkspaceId ? null : (
+                    <p className="mt-1 text-sm text-muted">
+                      You can view links but not create them. Ask an org admin for the editor role.
+                    </p>
+                  )}
+                </>
+              }
+              panels={
+                defaultWorkspaceId
+                  ? [
+                      {
+                        key: "new-link",
+                        label: "New link",
+                        primary: true,
+                        content: <CreateLinkForm workspaces={writable} defaultWorkspaceId={defaultWorkspaceId} />,
+                      },
+                    ]
+                  : []
+              }
+              defaultOpen={defaultWorkspaceId && links.length === 0 && !mine ? "new-link" : null}
+            />
             {links.length === 0 ? (
               <p className="empty-state">
                 {mine ? "You have not created any links here yet." : "No links yet. Create one, then share the /r/ address."}
@@ -167,6 +159,8 @@ export default async function HomePage({
                     <p className="mt-1 truncate text-xs text-muted">
                       {showWorkspace ? `${link.workspace_name} · ` : ""}
                       {link.created_by_name ? `by ${link.created_by_name}` : "Created before sign-in existed"}
+                      {" · "}
+                      <LocalTime iso={link.created_at} withTime={false} />
                     </p>
                     {link.tags.length > 0 ? (
                       <ul className="mt-3 flex flex-wrap gap-2">
@@ -184,23 +178,60 @@ export default async function HomePage({
                   </div>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2 md:justify-end">
                     <p className="text-sm">
-                      <span className="num text-lg">{link.click_count}</span>{" "}
+                      <span className="num text-lg font-semibold">{link.click_count}</span>{" "}
                       <span className="text-muted">clicks</span>
                     </p>
                     <p className="text-sm">
                       <span className="num text-lg">{link.visitor_count}</span>{" "}
                       <span className="text-muted">visitors</span>
                     </p>
-                    <p className="text-sm text-muted">
-                      <LocalTime iso={link.created_at} withTime={false} />
-                    </p>
-                    <CopyButton value={shortUrl} />
-                    <QrButton slug={link.slug} url={shortUrl} />
+                    <div className="flex items-center gap-2">
+                      <CopyButton value={shortUrl} />
+                      <QrButton slug={link.slug} url={shortUrl} />
+                    </div>
                     {can(user, link.workspace_id, "owner") ? <DeleteLinkButton slug={link.slug} /> : null}
                   </div>
                 </article>
               );
             })}
+          </section>
+        ) : null}
+
+        {ready && summary ? (
+          <section className="grid gap-4" aria-labelledby="activity-heading">
+            <h2 id="activity-heading" className="panel-title">
+              Activity
+            </h2>
+            <div className="panel">
+              <h3 className="sub-title">Last 30 days</h3>
+              <p className="mt-1 text-sm text-muted">Human visits per day, grouped in UTC. Hover a bar for its count.</p>
+              <DailyBars days={summary.daily} label="Human visits per day, last 30 days" />
+            </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Breakdown
+                title="Top links"
+                empty="No links yet."
+                rows={[...links]
+                  .filter((link) => link.click_count > 0)
+                  .sort((a, b) => b.click_count - a.click_count)
+                  .slice(0, 6)
+                  .map((link) => ({ label: link.title || link.slug, clicks: link.click_count, href: `/stats/${link.slug}` }))}
+              />
+              {/* Only while older tag links still get visits; new channels use labelled links. */}
+              {summary.tags.some((row) => row.tag) ? (
+                <Breakdown
+                  title="Older tag links"
+                  rows={summary.tags.map((row) => ({ label: row.tag || "Untagged", clicks: row.clicks }))}
+                />
+              ) : null}
+              <Breakdown
+                title="Places"
+                rows={summary.countries.map((row) => ({
+                  label: row.country === "Unknown" ? "No location" : countryName(row.country),
+                  clicks: row.clicks,
+                }))}
+              />
+            </div>
           </section>
         ) : null}
       </main>

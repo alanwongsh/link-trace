@@ -88,19 +88,18 @@ describe("checking a bulk upload", () => {
     ]);
   });
 
-  it("reports unknown and missing required columns before reading rows", () => {
+  it("reports unknown columns before reading rows; every label column is optional", () => {
     expect(parseBulkCsv(definitions, "booth,colour\nB1,red").problems.map((p) => p.message)).toEqual([
-      "colour is not an active parameter in this workspace.",
-      "The required column store_code (Store) is missing.",
+      "colour is not an active label in this workspace.",
     ]);
+    expect(parseBulkCsv(definitions, "booth\nB1").problems).toEqual([]);
   });
 
-  it("reports bad rows by line number", () => {
+  it("reports bad rows by line number, and allows empty values", () => {
     const result = parseBulkCsv(definitions, "store_code,booth\nKL001,B1\nOLD,B2\n,B3\nKL001,B4,extra");
-    expect(result.rows).toHaveLength(1);
+    expect(result.rows).toHaveLength(2);
     expect(result.problems).toEqual([
       { line: 3, message: '"OLD" is not an option for Store.' },
-      { line: 4, message: "Store is required." },
       { line: 5, message: "Has 3 columns; the header has 2." },
     ]);
   });
@@ -204,7 +203,7 @@ describe("bulk uploads", () => {
   it("needs the right role and hides other workspaces' links", async () => {
     session.user = await createUser({ [workspaceId]: "viewer" });
     expect((await bulkPlacements(empty, form({ slug: "promo", csv, intent: "check" }))).error).toBe(
-      "You cannot add placements in this workspace.",
+      "You cannot add labelled links in this workspace.",
     );
     session.user = await createUser({ [otherWorkspaceId]: "owner" });
     expect((await bulkPlacements(empty, form({ slug: "promo", csv, intent: "check" }))).error).toBe(

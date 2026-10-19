@@ -108,17 +108,13 @@ function Fields({
           id="param-description"
           name="description"
           maxLength={300}
-          placeholder="Which store the QR code is placed in"
+          placeholder="Which store the labelled link is for"
           className="field"
         />
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="is_required" />
-        Required when creating a placement
-      </label>
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? "Adding…" : "Add parameter"}
+          {pending ? "Adding…" : "Add label"}
         </button>
         {state.error ? (
           <p className="text-sm text-warn" role="alert">

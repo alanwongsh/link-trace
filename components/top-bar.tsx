@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/lib/auth";
 import { logout } from "@/lib/actions";
+import { NavLink } from "@/components/nav-link";
 
 export async function TopBar({ meta }: { meta?: string }) {
   const user = await getCurrentUser();
@@ -12,19 +13,19 @@ export async function TopBar({ meta }: { meta?: string }) {
             Link Trace
           </a>
           {user && !user.mustChangePassword ? (
-            <nav className="flex gap-4 text-sm text-muted">
-              <a href="/" className="transition hover:text-ink">
+            <nav className="flex gap-5 text-sm text-muted">
+              <NavLink href="/" match={["/", "/stats"]}>
                 Dashboard
-              </a>
+              </NavLink>
               {user.isOrgAdmin || user.memberships.length > 0 ? (
-                <a href="/parameters" className="transition hover:text-ink">
-                  Parameters
-                </a>
+                <NavLink href="/parameters" match={["/parameters", "/workspaces"]}>
+                  Labels
+                </NavLink>
               ) : null}
               {user.isOrgAdmin ? (
-                <a href="/admin/users" className="transition hover:text-ink">
+                <NavLink href="/admin/users" match={["/admin"]}>
                   Admin
-                </a>
+                </NavLink>
               ) : null}
             </nav>
           ) : null}

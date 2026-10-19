@@ -66,6 +66,8 @@ export type CreateState = {
   slug: string;
   // Set when a first placement was created with the link.
   placementCode?: string;
+  // Set when several placements were queued with the link; their zip appears on its page.
+  queuedCount?: number;
   // Per parameter key, when the first placement's values were rejected.
   fieldErrors?: Record<string, string>;
 };
@@ -92,6 +94,9 @@ export type PlacementState = {
   fieldErrors: Record<string, string>;
   // The new placement's code after a successful create.
   code: string;
+  // Set when several placements were queued instead; their zip appears on the link's page.
+  queuedCount?: number;
+  queuedJobId?: string;
 };
 
 export type BulkState = {

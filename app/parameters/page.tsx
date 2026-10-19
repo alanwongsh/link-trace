@@ -14,7 +14,7 @@ export default async function ParametersIndex() {
     <>
       <TopBar />
       <main className="mx-auto grid max-w-5xl gap-4 px-6 py-10">
-        <h1 className="font-serif text-4xl tracking-tight">Tracking parameters</h1>
+        <h1 className="font-serif text-4xl tracking-tight">Labels</h1>
         <p className="empty-state">
           You are not in any workspace yet. Ask an org admin to add you.
         </p>

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  combinationCount,
   normalizeKey,
   parseOptionRows,
   parseParameterFields,
+  planPlacements,
   suggestKey,
   validateParameterValues,
   type ParameterDefinition,
@@ -86,10 +88,10 @@ describe("parameter values", () => {
     expect(validateParameterValues(definitions, { store_code: "KL001" }).ok).toBe(true);
   });
 
-  it("enforces required parameters", () => {
+  it("treats every parameter as optional, even ones stored as required", () => {
     expect(validateParameterValues(definitions, { note: "x" })).toEqual({
-      ok: false,
-      errors: { store_code: "Store is required." },
+      ok: true,
+      values: [{ parameterId: "p-note", key: "note", value: "x", optionId: null }],
     });
   });
 
@@ -101,5 +103,32 @@ describe("parameter values", () => {
 
   it("allows no parameters at all", () => {
     expect(validateParameterValues([], {})).toEqual({ ok: true, values: [] });
+  });
+});
+
+describe("planning labelled links from picked values", () => {
+  const option = (value: string) => ({ id: `o-${value}`, value, isActive: true });
+  const definitions: ParameterDefinition[] = [
+    { id: "p-store", key: "store", name: "Store", fieldType: "dropdown", isRequired: true, isActive: true, options: ["A", "B", "C"].map(option) },
+    { id: "p-channel", key: "channel", name: "Channel", fieldType: "dropdown", isRequired: false, isActive: true, options: ["email", "lark"].map(option) },
+    { id: "p-note", key: "note", name: "Note", fieldType: "text", isRequired: false, isActive: true, options: [] },
+  ];
+  const rowsOf = (result: ReturnType<typeof planPlacements>) =>
+    result.ok ? result.rows.map((row) => row.map((v) => v.value).join(" · ")) : result.errors;
+
+  it("makes every combination, in label order, with single values applied to all", () => {
+    const result = planPlacements(definitions, { channel: ["email", "lark"], store: ["a", "B"], note: ["x"] }, 100);
+    expect(rowsOf(result)).toEqual(["A · email · x", "A · lark · x", "B · email · x", "B · lark · x"]);
+    expect(combinationCount({ channel: ["email", "lark"], store: ["A", "B"], note: ["x"], empty: [] })).toBe(4);
+  });
+
+  it("refuses more than the limit before checking any value", () => {
+    const result = planPlacements(definitions, { store: ["A", "B", "C"], channel: ["email", "lark"] }, 5);
+    expect(result).toEqual({ ok: false, errors: { store: "That makes 6 labelled links; the limit is 5 at a time." } });
+  });
+
+  it("names the label with a bad value, and needs no label in particular", () => {
+    expect(rowsOf(planPlacements(definitions, { store: ["A", "ZZ"] }, 100))).toEqual({ store: '"ZZ" is not an option for Store.' });
+    expect(rowsOf(planPlacements(definitions, { channel: ["email", "lark"] }, 100))).toEqual(["email", "lark"]);
   });
 });

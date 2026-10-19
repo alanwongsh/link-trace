@@ -3,7 +3,6 @@ import { FormSelect } from "@/components/form-select";
 import { Breakdown, DailyBars, Stat } from "@/components/charts";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
-import { AddTagsForm } from "@/components/add-tags-form";
 import { CopyButton } from "@/components/copy-button";
 import { EditTargetForm } from "@/components/edit-target-form";
 import { LinkTarget } from "@/components/link-target";
@@ -13,6 +12,8 @@ import { PlacementForm } from "@/components/placement-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { BulkPlacementForm } from "@/components/bulk-placement-form";
 import { QrButton } from "@/components/qr-button";
+import { RevealPanels } from "@/components/reveal-panels";
+import { Tabs } from "@/components/tabs";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
@@ -40,11 +41,14 @@ export const maxDuration = 300;
 
 export default async function StatsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const user = await requireUser();
   const { slug } = await params;
+  const query = await searchParams;
   const result = await loadDetail(slug);
   if (!result.ok) {
     return (
@@ -66,7 +70,6 @@ export default async function StatsPage({
   // Links outside the user's workspaces look the same as missing ones.
   const ownership = await linkOwnership(detail.link.slug);
   if (!ownership || !can(user, ownership.workspaceId, "viewer")) notFound();
-  const canEdit = can(user, ownership.workspaceId, "editor");
   const isOwner = can(user, ownership.workspaceId, "owner");
   const moveTargets = isOwner
     ? (user.isOrgAdmin
@@ -100,338 +103,403 @@ export default async function StatsPage({
       ? (job.status === "queued" || job.status === "running") && age > 10 * 60 * 1000
       : job.status === "queued" && age > 2 * 60 * 1000;
   });
+  // The page has three jobs: reading the numbers, managing labelled links, and changing the link.
+  const hasSettings = detail.link.kind === "page" || (Boolean(target) && isOwner) || moveTargets.length > 0;
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "links", label: "Labelled links", count: placementRows.length },
+    ...(hasSettings ? [{ key: "settings", label: "Settings" }] : []),
+  ];
+  const tab = tabs.find((t) => t.key === query.tab)?.key ?? "overview";
+  const tabHref = (key: string) => (key === "overview" ? `/stats/${detail.link.slug}` : `/stats/${detail.link.slug}?tab=${key}`);
 
   return (
     <>
       <TopBar meta={`${detail.unique_visitors} visitors`} />
       <main className="mx-auto grid max-w-5xl gap-8 px-6 py-10">
-        <div>
-          <a href="/" className="text-sm text-teal">
-            All links
-          </a>
-          <h1 className="mt-3 font-serif text-4xl tracking-tight">
-            {detail.link.title || detail.link.slug}
-          </h1>
-          <p className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-mono text-teal">{shortUrl}</span>
-            <CopyButton value={shortUrl} />
-          </p>
-          <LinkTarget slug={detail.link.slug} kind={detail.link.kind} url={detail.link.url} />
-          <p className="mt-2 text-sm text-muted">
-            {ownership.workspaceName}
-            {ownership.createdByName ? ` · created by ${ownership.createdByName}` : ""}
-            {ownership.updatedAt ? (
-              <>
-                {" · last changed "}
-                {ownership.updatedByName ? `by ${ownership.updatedByName} ` : ""}
-                <LocalTime iso={ownership.updatedAt} />
-              </>
-            ) : null}
-          </p>
+        <div className="grid gap-6">
+          <div>
+            <a href="/" className="text-sm text-teal">
+              All links
+            </a>
+            <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="font-serif text-4xl tracking-tight">{detail.link.title || detail.link.slug}</h1>
+                <p className="mt-2 truncate font-mono text-teal">{shortUrl}</p>
+                <LinkTarget slug={detail.link.slug} kind={detail.link.kind} url={detail.link.url} />
+                <p className="mt-2 text-sm text-muted">
+                  {ownership.workspaceName}
+                  {ownership.createdByName ? ` · created by ${ownership.createdByName}` : ""}
+                  {ownership.updatedAt ? (
+                    <>
+                      {" · last changed "}
+                      {ownership.updatedByName ? `by ${ownership.updatedByName} ` : ""}
+                      <LocalTime iso={ownership.updatedAt} />
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <CopyButton value={shortUrl} />
+                <QrButton slug={detail.link.slug} url={shortUrl} />
+              </div>
+            </div>
+          </div>
+          <Tabs
+            label="Link sections"
+            tabs={tabs.map((t) => ({ href: tabHref(t.key), label: t.label, count: t.count, current: t.key === tab }))}
+          />
         </div>
 
-        {detail.link.kind === "page" ? (
-          <section className="rounded-2xl border border-line bg-card p-5">
-            <PagePreview
-              key={pageVersion}
-              src={`/stats/${detail.link.slug}/preview?v=${pageVersion}`}
-              title={`Preview of ${detail.link.slug}`}
-            />
-          </section>
+        {tab === "overview" ? (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
+              <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d} in 7 days`} />
+              <Stat label="Visitors" value={detail.unique_visitors} hint="Distinct browser ids" />
+              <Stat label="IP addresses" value={detail.unique_ips} hint={`${detail.clicks_today} clicks today`} />
+              <Stat label="Bot hits" value={detail.bot_clicks} hint="Left out of the other counts" />
+            </section>
+
+            <section className="panel">
+              <h2 className="panel-title">Last 14 days</h2>
+              <p className="mt-1 text-sm text-muted">Human visits only. Days are grouped in UTC.</p>
+              <DailyBars days={detail.daily} label="Human visits per day, last 14 days" />
+            </section>
+
+            <VisitorMap countries={detail.countries} />
+
+            <section className="grid gap-4 lg:grid-cols-2">
+              <Breakdown
+                title="Places"
+                rows={detail.countries.slice(0, 8).map((row) => ({
+                  label: row.country === "Unknown" ? "No location" : countryName(row.country),
+                  clicks: row.clicks,
+                }))}
+              />
+              <Breakdown
+                title="Referrers"
+                rows={detail.referrers.map((row) => ({
+                  label: row.referrer,
+                  clicks: row.clicks,
+                }))}
+              />
+            </section>
+
+            <section className="grid gap-3">
+              <h2 className="sub-title">Recent visits</h2>
+              {detail.recent.length === 0 ? (
+                <p className="empty-state">No visits yet.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-line bg-card">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="border-b border-line text-muted">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">When</th>
+                        <th className="px-4 py-3 font-medium">Platform</th>
+                        <th className="px-4 py-3 font-medium">IP</th>
+                        <th className="px-4 py-3 font-medium">Visitor</th>
+                        <th className="px-4 py-3 font-medium">Place</th>
+                        <th className="px-4 py-3 font-medium">Referrer</th>
+                        <th className="px-4 py-3 font-medium">Browser</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.recent.map((click, index) => (
+                        <tr key={`${click.clicked_at}-${click.visitor_id}-${index}`} className="border-b border-line last:border-0">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <LocalTime iso={click.clicked_at} />
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs">{click.tag || "—"}</td>
+                          <td className="px-4 py-3 font-mono text-xs" title={click.ip || ""}>
+                            {ipLabel(click.ip)}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs" title={click.visitor_id}>
+                            {click.visitor_id.slice(0, 8)}
+                            {click.is_bot ? <span className="ml-2 text-warn">bot</span> : null}
+                          </td>
+                          <td className="px-4 py-3">{isLoopback(click.ip) ? "Local" : placeLabel(click)}</td>
+                          <td className="max-w-[180px] truncate px-4 py-3" title={click.referrer || "Direct"}>
+                            {click.referrer || "Direct"}
+                          </td>
+                          <td className="px-4 py-3" title={click.user_agent || ""}>
+                            {browserLabel(click.user_agent)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
         ) : null}
 
-        {target && isOwner ? (
-          <section className="rounded-2xl border border-line bg-card p-5">
-            <EditTargetForm
-              slug={detail.link.slug}
-              kind={target.kind}
-              url={target.url}
-              html={target.html}
-            />
-          </section>
-        ) : null}
-
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d} in 7 days`} />
-          <Stat label="Visitors" value={detail.unique_visitors} hint="Distinct browser ids" />
-          <Stat label="IP addresses" value={detail.unique_ips} hint={`${detail.clicks_today} clicks today`} />
-          <Stat label="Bot hits" value={detail.bot_clicks} hint="Left out of the other counts" />
-        </section>
-
-        <section className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="font-serif text-2xl">Platforms</h2>
-          <p className="mt-1 text-sm text-muted">
-            Share a tagged link for each platform. Visits to the plain link stay untagged.
-          </p>
-          <ul className="mt-4 grid gap-3">
-            {detail.tag_stats.map((row) => (
-              <PlatformRow
-                key={row.tag}
-                slug={detail.link.slug}
-                tag={row.tag}
-                label={row.tag}
-                url={`${shortUrl}/${row.tag}`}
-                clicks={row.clicks}
-                visitors={row.visitors}
+        {tab === "links" ? (
+          <>
+            <section className="grid gap-4" aria-labelledby="placements-heading">
+              <RevealPanels
+                heading={
+                  <>
+                    <h2 id="placements-heading" className="panel-title">
+                      Labelled links
+                    </h2>
+                    <p className="mt-1 max-w-2xl text-sm text-muted">
+                      Extra short links to the same destination, each with{" "}
+                      <a href={`/workspaces/${ownership.workspaceId}/parameters`} className="text-teal hover:underline">
+                        {ownership.workspaceName} labels
+                      </a>{" "}
+                      such as store or channel, and its own QR code. Their visits also count in the overview.
+                    </p>
+                  </>
+                }
+                panels={
+                  canPlace
+                    ? [
+                        {
+                          key: "add",
+                          label: "Add labelled link",
+                          primary: true,
+                          content: (
+                            <div className="panel">
+                              <h3 className="sub-title mb-3">Add a labelled link</h3>
+                              <PlacementForm
+                                slug={detail.link.slug}
+                                fields={fields}
+                                base={base}
+                                manageHref={`/workspaces/${ownership.workspaceId}/parameters`}
+                              />
+                            </div>
+                          ),
+                        },
+                        {
+                          key: "csv",
+                          label: "Import CSV",
+                          content: (
+                            <div className="panel">
+                              <h3 className="sub-title mb-3">Add many from a spreadsheet (CSV)</h3>
+                              <BulkPlacementForm slug={detail.link.slug} columns={["name", ...fields.map((f) => f.key)]} />
+                            </div>
+                          ),
+                        },
+                      ]
+                    : []
+                }
+                defaultOpen={canPlace && placementRows.length === 0 ? "add" : null}
               />
-            ))}
-            <PlatformRow
-              slug={detail.link.slug}
-              label="Untagged"
-              url={shortUrl}
-              clicks={detail.untagged_clicks}
-              visitors={detail.untagged_visitors}
-            />
-          </ul>
-          {canEdit ? <AddTagsForm slug={detail.link.slug} /> : null}
-        </section>
 
-        <section id="placements" className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="font-serif text-2xl">Placements</h2>
-          <p className="mt-1 text-sm text-muted">
-            Each placement is one real QR code or printed spot, with its own short address and the labels set in{" "}
-            <a href={`/workspaces/${ownership.workspaceId}/parameters`} className="text-teal hover:underline">
-              {ownership.workspaceName} parameters
-            </a>
-            . Scans of a placement also count in the totals above.
-          </p>
-          {placementRows.length === 0 ? (
-            <p className="empty-state mt-4 text-sm">No placements yet.</p>
-          ) : (
-            <ul className="mt-4 grid gap-3">
-              {placementRows.map((p) => {
-                const url = `${base}/q/${p.code}`;
-                const title = p.name || p.code;
-                return (
-                  <li
-                    key={p.id}
-                    className={`grid gap-3 rounded-xl border border-line px-4 py-3 md:grid-cols-[1fr_auto] md:items-center ${
-                      p.isActive ? "" : "bg-paper text-muted"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{title}</span>
-                        {p.legacyTag ? (
-                          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-muted">
-                            from tag <span className="font-mono">{p.legacyTag}</span>
-                          </span>
-                        ) : null}
-                        {p.isActive ? null : (
-                          <span className="rounded-full border border-line px-2 py-0.5 text-xs">Inactive · still redirects</span>
-                        )}
-                      </p>
-                      <p className="mt-1 truncate font-mono text-sm text-teal">{url}</p>
-                      {p.values.length > 0 ? (
-                        <ul className="mt-2 flex flex-wrap gap-2">
-                          {p.values.map((v) => (
-                            <li key={v.parameterId} className="rounded-full border border-line bg-paper px-3 py-1 text-xs">
-                              <span className="text-muted">{v.name}:</span>{" "}
-                              <span className="font-mono">{v.value}</span>
-                              {v.label ? <span className="text-muted"> · {v.label}</span> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm md:justify-end">
-                      <p>
-                        <span className="num">{p.clicks}</span> <span className="text-muted">clicks</span>
-                      </p>
-                      <p>
-                        <span className="num">{p.visitors}</span> <span className="text-muted">visitors</span>
-                      </p>
-                      <CopyButton value={url} />
-                      <QrButton slug={detail.link.slug} placement={p.code} label={title} url={url} />
-                      {canPlace ? (
-                        <ActionForm
-                          action={setPlacementStatus}
-                          submit={p.isActive ? "Deactivate" : "Activate"}
-                          variant={p.isActive ? "danger" : "secondary"}
-                          confirm={
-                            p.isActive
-                              ? `Deactivate ${title}? Its code keeps redirecting and counting scans, since it may be printed.`
-                              : undefined
-                          }
-                          quiet
-                          inline
-                        >
-                          <input type="hidden" name="placement_id" value={p.id} />
-                          <input type="hidden" name="is_active" value={p.isActive ? "false" : "true"} />
-                        </ActionForm>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {canPlace ? (
-            <div className="mt-5 border-t border-line pt-5">
-              <h3 className="mb-3 text-lg font-semibold">Add a placement</h3>
-              <PlacementForm
-                slug={detail.link.slug}
-                fields={fields}
-                base={base}
-                manageHref={`/workspaces/${ownership.workspaceId}/parameters`}
-              />
-            </div>
-          ) : null}
-          {canPlace ? (
-            <div className="mt-5 border-t border-line pt-5">
-              <h3 className="mb-3 text-lg font-semibold">Add many from CSV</h3>
-              <BulkPlacementForm slug={detail.link.slug} columns={["name", ...fields.map((f) => f.key)]} />
-            </div>
-          ) : null}
-          {bulkJobs.length > 0 ? (
-            <div className="mt-5 border-t border-line pt-5">
-              <AutoRefresh active={bulkRunning} />
-              <h3 className="mb-3 text-lg font-semibold">Bulk uploads</h3>
-              {stalled ? (
-                <p className="mb-3 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn" role="alert">
-                  {inline ? (
-                    <>
-                      An upload stopped before finishing, probably at the server&apos;s time limit. Try fewer rows or SVG
-                      files.
-                    </>
-                  ) : (
-                    <>
-                      An upload has been waiting for over two minutes. The background worker may not be running; start
-                      it with <span className="font-mono">npm run worker</span>.
-                    </>
-                  )}
-                </p>
-              ) : null}
-              <ul className="grid gap-2">
-                {bulkJobs.map((job) => (
-                  <li
-                    key={job.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3 text-sm"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium">
-                        {job.total.toLocaleString("en")} placement{job.total === 1 ? "" : "s"} ·{" "}
-                        {job.format.toUpperCase()}
-                      </p>
-                      <p className="text-xs text-muted">
-                        <LocalTime iso={job.createdAt} />
-                        {job.status === "failed" && job.error ? ` · ${job.error}` : ""}
-                      </p>
-                    </div>
-                    {job.status === "done" ? (
-                      job.hasZip ? (
-                        <a href={`/stats/${detail.link.slug}/bulk/${job.id}`} className="btn-primary text-sm no-underline">
-                          Download zip
-                        </a>
+              {bulkJobs.length > 0 ? (
+                <div className="panel">
+                  <AutoRefresh active={bulkRunning} />
+                  <h3 className="sub-title mb-3">QR code downloads</h3>
+                  {stalled ? (
+                    <p className="mb-3 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn" role="alert">
+                      {inline ? (
+                        <>
+                          A batch stopped before finishing, probably at the server&apos;s time limit. Try fewer rows or
+                          SVG files.
+                        </>
                       ) : (
-                        <span className="text-muted">Zip expired · the placements are listed above</span>
-                      )
-                    ) : job.status === "failed" ? (
-                      <span className="text-warn">Failed</span>
-                    ) : (
-                      <span className="num text-muted" role="status">
-                        {job.status === "queued"
-                          ? "Waiting…"
-                          : `Making QR codes ${job.processed.toLocaleString("en")} / ${job.total.toLocaleString("en")}`}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </section>
+                        <>
+                          A batch has been waiting for over two minutes. The background worker may not be running;
+                          start it with <span className="font-mono">npm run worker</span>.
+                        </>
+                      )}
+                    </p>
+                  ) : null}
+                  <ul className="grid gap-2">
+                    {bulkJobs.map((job) => (
+                      <li
+                        key={job.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {job.total.toLocaleString("en")} QR code{job.total === 1 ? "" : "s"} ·{" "}
+                            {job.format.toUpperCase()}
+                          </p>
+                          <p className="text-xs text-muted">
+                            <LocalTime iso={job.createdAt} />
+                            {job.status === "failed" && job.error ? ` · ${job.error}` : ""}
+                          </p>
+                        </div>
+                        {job.status === "done" ? (
+                          job.hasZip ? (
+                            <a href={`/stats/${detail.link.slug}/bulk/${job.id}`} className="btn-primary text-sm no-underline">
+                              Download zip
+                            </a>
+                          ) : (
+                            <span className="text-muted">Zip expired · the labelled links are listed below</span>
+                          )
+                        ) : job.status === "failed" ? (
+                          <span className="text-warn">Failed</span>
+                        ) : (
+                          <span className="num text-muted" role="status">
+                            {job.status === "queued"
+                              ? "Waiting…"
+                              : `Making QR codes ${job.processed.toLocaleString("en")} / ${job.total.toLocaleString("en")}`}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
-        <section className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="font-serif text-2xl">Last 14 days</h2>
-          <p className="mt-1 text-sm text-muted">Human visits only. Days are grouped in UTC.</p>
-          <DailyBars days={detail.daily} label="Human visits per day, last 14 days" />
-        </section>
+              {placementRows.length === 0 ? (
+                <p className="empty-state text-sm">No labelled links yet.</p>
+              ) : (
+                <ul className="grid gap-3">
+                  {placementRows.map((p) => {
+                    const url = `${base}/q/${p.code}`;
+                    // Named from its labels when it has no name of its own (the forms no longer ask for one).
+                    const title = p.name || p.values.map((v) => v.value).join(" · ") || p.code;
+                    return (
+                      <li
+                        key={p.id}
+                        className={`grid gap-3 rounded-xl border border-line px-4 py-3 md:grid-cols-[1fr_auto] md:items-center ${
+                          p.isActive ? "bg-card" : "bg-paper text-muted"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">{title}</span>
+                            {p.legacyTag ? (
+                              <span className="rounded-full border border-line px-2 py-0.5 text-xs text-muted">
+                                from tag <span className="font-mono">{p.legacyTag}</span>
+                              </span>
+                            ) : null}
+                            {p.isActive ? null : (
+                              <span className="rounded-full border border-line px-2 py-0.5 text-xs">Inactive · still redirects</span>
+                            )}
+                          </p>
+                          <p className="mt-1 truncate font-mono text-sm text-teal">{url}</p>
+                          {p.values.length > 0 ? (
+                            <ul className="mt-2 flex flex-wrap gap-2">
+                              {p.values.map((v) => (
+                                <li key={v.parameterId} className="rounded-full border border-line bg-paper px-3 py-1 text-xs">
+                                  <span className="text-muted">{v.name}:</span>{" "}
+                                  <span className="font-mono">{v.value}</span>
+                                  {v.label ? <span className="text-muted"> · {v.label}</span> : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm md:justify-end">
+                          <p>
+                            <span className="num font-semibold">{p.clicks}</span> <span className="text-muted">clicks</span>
+                          </p>
+                          <p>
+                            <span className="num">{p.visitors}</span> <span className="text-muted">visitors</span>
+                          </p>
+                          <CopyButton value={url} />
+                          <QrButton slug={detail.link.slug} placement={p.code} label={title} url={url} />
+                          {canPlace ? (
+                            <ActionForm
+                              action={setPlacementStatus}
+                              submit={p.isActive ? "Deactivate" : "Activate"}
+                              variant={p.isActive ? "danger" : "secondary"}
+                              confirm={
+                                p.isActive
+                                  ? `Deactivate ${title}? Its code keeps redirecting and counting scans, since it may be printed.`
+                                  : undefined
+                              }
+                              quiet
+                              inline
+                            >
+                              <input type="hidden" name="placement_id" value={p.id} />
+                              <input type="hidden" name="is_active" value={p.isActive ? "false" : "true"} />
+                            </ActionForm>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
 
-        <VisitorMap countries={detail.countries} />
-
-        <section className="grid gap-4 lg:grid-cols-2">
-          <Breakdown
-            title="Places"
-            rows={detail.countries.slice(0, 8).map((row) => ({
-              label: row.country === "Unknown" ? "No location" : countryName(row.country),
-              clicks: row.clicks,
-            }))}
-          />
-          <Breakdown
-            title="Referrers"
-            rows={detail.referrers.map((row) => ({
-              label: row.referrer,
-              clicks: row.clicks,
-            }))}
-          />
-        </section>
-
-        <section className="grid gap-3">
-          <h2 className="font-serif text-2xl">Recent visits</h2>
-          {detail.recent.length === 0 ? (
-            <p className="empty-state">
-              No visits yet.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-2xl border border-line bg-card">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead className="border-b border-line text-muted">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">When</th>
-                    <th className="px-4 py-3 font-medium">Platform</th>
-                    <th className="px-4 py-3 font-medium">IP</th>
-                    <th className="px-4 py-3 font-medium">Visitor</th>
-                    <th className="px-4 py-3 font-medium">Place</th>
-                    <th className="px-4 py-3 font-medium">Referrer</th>
-                    <th className="px-4 py-3 font-medium">Browser</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.recent.map((click, index) => (
-                    <tr key={`${click.clicked_at}-${click.visitor_id}-${index}`} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <LocalTime iso={click.clicked_at} />
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">{click.tag || "—"}</td>
-                      <td className="px-4 py-3 font-mono text-xs" title={click.ip || ""}>
-                        {ipLabel(click.ip)}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs" title={click.visitor_id}>
-                        {click.visitor_id.slice(0, 8)}
-                        {click.is_bot ? <span className="ml-2 text-warn">bot</span> : null}
-                      </td>
-                      <td className="px-4 py-3">{isLoopback(click.ip) ? "Local" : placeLabel(click)}</td>
-                      <td className="max-w-[180px] truncate px-4 py-3" title={click.referrer || "Direct"}>
-                        {click.referrer || "Direct"}
-                      </td>
-                      <td className="px-4 py-3" title={click.user_agent || ""}>
-                        {browserLabel(click.user_agent)}
-                      </td>
-                    </tr>
+            {/* Tags are no longer added; links that have them keep working and stay listed here. */}
+            {detail.tag_stats.length > 0 ? (
+              <section className="grid gap-3">
+                <div>
+                  <h2 className="sub-title">Older tag links</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    These links keep working. For a new channel, add a labelled link with a label such as Channel.
+                  </p>
+                </div>
+                <ul className="grid gap-3">
+                  {detail.tag_stats.map((row) => (
+                    <PlatformRow
+                      key={row.tag}
+                      slug={detail.link.slug}
+                      tag={row.tag}
+                      label={row.tag}
+                      url={`${shortUrl}/${row.tag}`}
+                      clicks={row.clicks}
+                      visitors={row.visitors}
+                    />
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-        {moveTargets.length > 0 ? (
-          <section className="rounded-2xl border border-line bg-card p-5">
-            <h2 className="font-serif text-2xl">Move to another workspace</h2>
-            <p className="mt-1 text-sm text-muted">
-              The short link, tags, and visit history stay the same. Only who can see and manage it changes.
-            </p>
-            <ActionForm action={moveLinkToWorkspace} submit="Move link" pending="Moving…" variant="secondary" className="mt-4 grid gap-3">
-              <input type="hidden" name="slug" value={detail.link.slug} />
-              <FormSelect
-                name="workspace_id"
-                required
-                options={moveTargets.map((w) => ({ value: w.id, label: w.name }))}
-                placeholder="Choose a workspace"
-                ariaLabel="Workspace"
-              />
-            </ActionForm>
-          </section>
+                  <PlatformRow
+                    slug={detail.link.slug}
+                    label="Untagged"
+                    url={shortUrl}
+                    clicks={detail.untagged_clicks}
+                    visitors={detail.untagged_visitors}
+                  />
+                </ul>
+              </section>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "settings" ? (
+          <>
+            {detail.link.kind === "page" || (target && isOwner) ? (
+              <section className="panel grid gap-5">
+                <div>
+                  <h2 className="panel-title">Destination</h2>
+                  <p className="mt-1 text-sm text-muted">Where the short link and all its labelled links send people.</p>
+                </div>
+                {detail.link.kind === "page" ? (
+                  <PagePreview
+                    key={pageVersion}
+                    src={`/stats/${detail.link.slug}/preview?v=${pageVersion}`}
+                    title={`Preview of ${detail.link.slug}`}
+                  />
+                ) : null}
+                {target && isOwner ? (
+                  <EditTargetForm slug={detail.link.slug} kind={target.kind} url={target.url} html={target.html} />
+                ) : null}
+              </section>
+            ) : null}
+
+            {moveTargets.length > 0 ? (
+              <section className="danger-zone">
+                <h2 className="sub-title text-warn">Move to another workspace</h2>
+                <p className="mt-1 text-sm text-muted">
+                  The short link, tags, and visit history stay the same. Only who can see and manage it changes.
+                </p>
+                <ActionForm
+                  action={moveLinkToWorkspace}
+                  submit="Move link"
+                  pending="Moving…"
+                  variant="danger"
+                  confirm="Move this link? People in the current workspace may lose access to it."
+                  className="mt-4 grid gap-3"
+                >
+                  <input type="hidden" name="slug" value={detail.link.slug} />
+                  <FormSelect
+                    name="workspace_id"
+                    required
+                    options={moveTargets.map((w) => ({ value: w.id, label: w.name }))}
+                    placeholder="Choose a workspace"
+                    ariaLabel="Workspace"
+                  />
+                </ActionForm>
+              </section>
+            ) : null}
+          </>
         ) : null}
       </main>
     </>

@@ -16,6 +16,8 @@ const fullMenuClass =
   "absolute left-0 z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 shadow-lg";
 
 const SEARCH_LIMIT = 200;
+// Picked codes named on a multi-select's button; the rest are shown as "…".
+const SUMMARY_CODES = 4;
 
 export type FilterOption = {
   value: string;
@@ -288,6 +290,10 @@ export function FilterMultiSelect({
   options,
   placeholder,
   fullWidth = false,
+  id,
+  searchable = false,
+  invalid = false,
+  showAll = false,
 }: {
   label?: string;
   value: string[];
@@ -296,11 +302,24 @@ export function FilterMultiSelect({
   placeholder: string;
   /** Stretch to the parent width. The filter bar keeps the compact width. */
   fullWidth?: boolean;
+  /** Id for the trigger button, so an outside <label htmlFor> can name it. */
+  id?: string;
+  /** Shows a search box above the options, for long lists. */
+  searchable?: boolean;
+  invalid?: boolean;
+  /** Summarise several picks as a badge ("All", or "2 of 5") and the picked codes, instead of "N selected". */
+  showAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const rootRef = useMenuDismiss(open, setOpen);
   const listId = useId();
-  const buttonId = useId();
+  const generatedId = useId();
+  const buttonId = id ?? generatedId;
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  // Long lists render only the first matches; searching narrows them down.
+  const shown = searchable ? matches.slice(0, SEARCH_LIMIT) : matches;
 
   function toggle(code: string) {
     if (value.includes(code)) {
@@ -315,7 +334,11 @@ export function FilterMultiSelect({
       ? placeholder
       : value.length === 1
         ? options.find((o) => o.value === value[0])?.label ?? "1 selected"
-        : `${value.length} selected`;
+        : `${value.length.toLocaleString("en")} selected`;
+  const everything = value.length === options.length && options.length > 1;
+  // With showAll: a badge for how much is ticked, then the ticked codes in list order.
+  const ticked = showAll && value.length > 1 ? options.filter((o) => value.includes(o.value)) : [];
+  const codes = ticked.slice(0, SUMMARY_CODES).map((o) => o.value).join(", ") + (ticked.length > SUMMARY_CODES ? "…" : "");
 
   return (
     <div className={fullWidth ? "relative w-full" : "relative w-full sm:w-auto"} ref={rootRef}>
@@ -325,18 +348,58 @@ export function FilterMultiSelect({
         type="button"
         aria-expanded={open}
         aria-controls={listId}
-        className={fullWidth ? fullTriggerClass : triggerClass}
-        onClick={() => setOpen((v) => !v)}
+        aria-invalid={invalid || undefined}
+        className={`${fullWidth ? fullTriggerClass : triggerClass} ${invalid ? "border-warn" : ""}`}
+        onClick={() => {
+          setOpen((v) => !v);
+          setQuery("");
+        }}
       >
-        <span className={`truncate ${value.length ? "" : "text-slate-500"}`}>
-          {summary}
-        </span>
+        {ticked.length > 0 ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase ${
+                everything ? "bg-teal text-white" : "bg-slate-200 text-slate-700"
+              }`}
+            >
+              {everything ? "All" : `${value.length.toLocaleString("en")} of ${options.length.toLocaleString("en")}`}
+            </span>
+            <span className="truncate font-normal text-slate-600">
+              {everything && options.length > SUMMARY_CODES ? `${options.length.toLocaleString("en")} · ` : ""}
+              {codes}
+            </span>
+          </span>
+        ) : (
+          <span className={`truncate ${value.length ? "" : "text-slate-500"}`}>{summary}</span>
+        )}
         <span className="text-slate-400" aria-hidden>
           ▾
         </span>
       </button>
       {open ? (
         <div id={listId} className={fullWidth ? fullMenuClass : menuClass}>
+          {searchable ? (
+            <div className="mb-2">
+              <input
+                type="search"
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                // Enter must not submit the surrounding form.
+                onKeyDown={(event) => event.key === "Enter" && event.preventDefault()}
+                placeholder="Search"
+                aria-label={`Search ${label ?? "options"}`}
+                className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm outline-none focus:border-teal"
+              />
+              {matches.length > shown.length ? (
+                <p className="mt-1 px-1 text-xs text-muted">
+                  Showing {shown.length} of {matches.length.toLocaleString("en")}. Type to narrow down.
+                </p>
+              ) : matches.length === 0 ? (
+                <p className="mt-1 px-1 text-xs text-muted">No matches.</p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mb-1 flex items-center justify-between gap-2 px-1 pb-1">
             <button
               type="button"
@@ -354,7 +417,7 @@ export function FilterMultiSelect({
             </button>
           </div>
           <ul className="max-h-60 space-y-0.5 overflow-auto">
-            {options.map((o) => {
+            {shown.map((o) => {
               const checked = value.includes(o.value);
               return (
                 <li key={o.value}>

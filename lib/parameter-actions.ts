@@ -27,8 +27,8 @@ import {
 import type { FormState } from "@/lib/types";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NOT_FOUND = "That parameter could not be found.";
-const NOT_ALLOWED = "You cannot manage parameters in that workspace.";
+const NOT_FOUND = "That label could not be found.";
+const NOT_ALLOWED = "You cannot manage labels in that workspace.";
 
 function id(value: FormDataEntryValue | null): string | null {
   const text = String(value ?? "");
@@ -79,11 +79,12 @@ async function optionForUser(rawId: FormDataEntryValue | null) {
   return { ok: true, user, option } as const;
 }
 
+// Every label is optional, so is_required is always saved off; the column stays for older rows.
 function fields(formData: FormData) {
   return parseParameterFields({
     name: String(formData.get("name") ?? ""),
     description: String(formData.get("description") ?? ""),
-    isRequired: formData.get("is_required") === "on",
+    isRequired: false,
   });
 }
 
@@ -105,7 +106,7 @@ export async function createParameter(_prev: FormState, formData: FormData): Pro
 
   const created = await insertParameter({ ...parsed.value, workspaceId, key, fieldType, createdBy: user.id });
   if (created === "duplicate") return failed(`The key ${key} is already used in this workspace.`);
-  if (created === "too-many") return failed(`A workspace can have up to ${MAX_PARAMETERS} parameters.`);
+  if (created === "too-many") return failed(`A workspace can have up to ${MAX_PARAMETERS} labels.`);
   if (created === "no-workspace") return failed(NOT_ALLOWED);
 
   await audit({
@@ -120,7 +121,7 @@ export async function createParameter(_prev: FormState, formData: FormData): Pro
   return done(`Added ${parsed.value.name}.`);
 }
 
-// Changes the name, description and required setting. The key and field type stay fixed.
+// Changes the name and description. The key and field type stay fixed.
 export async function editParameter(_prev: FormState, formData: FormData): Promise<FormState> {
   const loaded = await parameterForUser(formData.get("parameter_id"));
   if (!loaded.ok) return failed(loaded.error);
@@ -181,12 +182,12 @@ export async function importOptions(_prev: FormState, formData: FormData): Promi
   const loaded = await parameterForUser(formData.get("parameter_id"));
   if (!loaded.ok) return failed(loaded.error);
   const { user, parameter } = loaded;
-  if (parameter.fieldType !== "dropdown") return failed("Only dropdown parameters have options.");
+  if (parameter.fieldType !== "dropdown") return failed("Only dropdown labels have options.");
 
   const parsed = parseOptionRows(String(formData.get("options") ?? ""));
   if (!parsed.ok) return failed(parsed.error);
   const result = await addOptions(parameter.id, parsed.rows, user.id);
-  if (result === "too-many") return failed(`A parameter can have up to ${MAX_OPTIONS} options.`);
+  if (result === "too-many") return failed(`A label can have up to ${MAX_OPTIONS} options.`);
 
   if (result.added > 0) {
     await audit({

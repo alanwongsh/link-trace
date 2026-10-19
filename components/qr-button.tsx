@@ -61,7 +61,7 @@ export function QrButton({
             className="mx-auto block aspect-square w-full max-w-[min(100%,50dvh)] rounded-lg bg-white"
           />
           <p className="text-xs text-muted">
-            {placement ? "Scans count for this placement." : `Scans count as visits${tag ? ` tagged ${tag}` : ""}.`}
+            {placement ? "Visits count for this labelled link." : `Scans count as visits${tag ? ` tagged ${tag}` : ""}.`}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <a

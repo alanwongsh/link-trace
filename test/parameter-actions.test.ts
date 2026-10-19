@@ -49,8 +49,9 @@ describe("parameters", () => {
     });
     await create({ name: "Booth", key: "booth_id" });
     const rows = await data.listParameters(workspaceId);
+    // is_required from an old form is ignored; every label is optional.
     expect(rows.map((r) => [r.key, r.fieldType, r.isRequired, r.isActive, r.sortOrder])).toEqual([
-      ["store_code", "dropdown", true, true, 0],
+      ["store_code", "dropdown", false, true, 0],
       ["booth_id", "text", false, true, 1],
     ]);
     expect(await db().select().from(auditLog).where(eq(auditLog.action, "parameter.create"))).toHaveLength(2);
@@ -86,7 +87,7 @@ describe("parameters", () => {
     );
     expect(result.error).toBe("");
     const [row] = await db().select().from(trackingParameters).where(eq(trackingParameters.id, id));
-    expect(row).toMatchObject({ name: "Outlet", key: "store_code", fieldType: "dropdown", isRequired: true, description: "Branch code" });
+    expect(row).toMatchObject({ name: "Outlet", key: "store_code", fieldType: "dropdown", isRequired: false, description: "Branch code" });
   });
 
   it("deactivates and reactivates instead of deleting", async () => {
@@ -127,7 +128,7 @@ describe("workspace isolation", () => {
 
     session.user = await createUser({ [workspaceId]: "owner" });
     expect((await create({ name: "X", key: "x" }, otherWorkspaceId)).error).toBe(
-      "You cannot manage parameters in that workspace.",
+      "You cannot manage labels in that workspace.",
     );
     const attempts = [
       actions.editParameter(empty, form({ parameter_id: id, name: "Hacked" })),
@@ -136,7 +137,7 @@ describe("workspace isolation", () => {
       actions.reorderParameter(empty, form({ parameter_id: id, direction: "up" })),
     ];
     for (const result of await Promise.all(attempts)) {
-      expect(result.error).toBe("That parameter could not be found.");
+      expect(result.error).toBe("That label could not be found.");
     }
     expect((await parameterByKey("secret", otherWorkspaceId)).name).toBe("Secret");
   });
@@ -149,7 +150,7 @@ describe("workspace isolation", () => {
   it("rejects a workspace id that does not exist", async () => {
     session.user = await createUser({}, { isOrgAdmin: true });
     const result = await create({ name: "Store", key: "store" }, "00000000-0000-7000-8000-000000000000");
-    expect(result.error).toBe("You cannot manage parameters in that workspace.");
+    expect(result.error).toBe("You cannot manage labels in that workspace.");
   });
 });
 
@@ -195,7 +196,7 @@ describe("dropdown options", () => {
     await create({ name: "Note", key: "note" });
     const note = await parameterByKey("note");
     expect((await actions.importOptions(empty, form({ parameter_id: note.id, options: "A" }))).error).toBe(
-      "Only dropdown parameters have options.",
+      "Only dropdown labels have options.",
     );
   });
 
@@ -241,7 +242,7 @@ describe("dropdown options", () => {
       values: [{ key: "store_code", value: "KL001" }],
     });
     expect(validateParameterValues(definitions, { store_code: "OLD" }).ok).toBe(false);
-    expect(validateParameterValues(definitions, {}).ok).toBe(false);
-    expect(validateParameterValues(await data.parameterDefinitions(otherWorkspaceId), {}).ok).toBe(true);
+    // Every label is optional, even one created with is_required.
+    expect(validateParameterValues(definitions, {})).toEqual({ ok: true, values: [] });
   });
 });

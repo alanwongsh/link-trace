@@ -1,13 +1,17 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { LabelledLinkFields } from "@/components/labelled-link-fields";
+import { MAX_LABELLED_LINKS } from "@/lib/parameters";
 import { createPlacement } from "@/lib/placement-actions";
 import type { PlacementState } from "@/lib/types";
-import { optionText, ParameterInputs, type PlacementField } from "./parameter-inputs";
+import { optionText, type PlacementField } from "./parameter-inputs";
 
 export type { PlacementField };
 
 const initial: PlacementState = { error: "", fieldErrors: {}, code: "" };
+// Values listed per label in the review; the rest are counted.
+const REVIEW_VALUES = 8;
 
 export function PlacementForm({
   slug,
@@ -23,7 +27,7 @@ export function PlacementForm({
   const [state, action, pending] = useActionState(createPlacement, initial);
   return (
     <Fields
-      key={state.code || "new"}
+      key={state.code || state.queuedJobId || "new"}
       state={state}
       action={action}
       pending={pending}
@@ -55,6 +59,8 @@ function Fields({
   const formRef = useRef<HTMLFormElement>(null);
   const [reviewing, setReviewing] = useState(false);
   const [summary, setSummary] = useState<{ label: string; value: string }[]>([]);
+  // How many labelled links the ticked values make, reported by the fields.
+  const [total, setTotal] = useState(1);
   // A rejected create goes back to the fields so their errors show.
   useEffect(() => {
     if (state.error) setReviewing(false);
@@ -64,11 +70,19 @@ function Fields({
     const form = formRef.current;
     if (!form || !form.reportValidity()) return;
     const data = new FormData(form);
-    const rows = [{ label: "Name", value: String(data.get("name") ?? "").trim() || "—" }];
+    const rows: { label: string; value: string }[] = [];
     for (const field of fields) {
-      const raw = String(data.get(`param:${field.key}`) ?? "").trim();
-      const option = field.options.find((o) => o.value.toLowerCase() === raw.toLowerCase());
-      rows.push({ label: field.name, value: raw ? (option ? optionText(option) : raw) : "—" });
+      if (!data.has(`param:${field.key}`)) continue;
+      const picked = data
+        .getAll(`param:${field.key}`)
+        .map((raw) => String(raw).trim())
+        .filter(Boolean)
+        .map((raw) => {
+          const option = field.options.find((o) => o.value.toLowerCase() === raw.toLowerCase());
+          return option ? optionText(option) : raw;
+        });
+      const listed = picked.length > REVIEW_VALUES ? `${picked.slice(0, REVIEW_VALUES).join(", ")} and ${picked.length - REVIEW_VALUES} more` : picked.join(", ");
+      rows.push({ label: field.name, value: listed || "—" });
     }
     setSummary(rows);
     setReviewing(true);
@@ -90,27 +104,30 @@ function Fields({
       <input type="hidden" name="slug" value={slug} />
       {state.code ? (
         <p className="rounded-xl border border-teal/40 bg-teal/5 px-4 py-3 text-sm text-teal" role="status">
-          Created <span className="font-mono">{`${base}/q/${state.code}`}</span>. Its QR code is in the list above.
+          Created <span className="font-mono">{`${base}/q/${state.code}`}</span>. It&apos;s in the list above.
+        </p>
+      ) : state.queuedCount ? (
+        <p className="rounded-xl border border-teal/40 bg-teal/5 px-4 py-3 text-sm text-teal" role="status">
+          Making {state.queuedCount.toLocaleString("en")} labelled links. Zips of their QR codes appear under QR
+          code downloads when ready.
         </p>
       ) : null}
 
       <div className={reviewing ? "hidden" : "grid gap-4"}>
-        <div className="grid gap-2">
-          <label htmlFor="placement-name" className="text-sm font-medium">
-            Name <span className="font-normal text-muted">optional, such as “Entrance poster”</span>
-          </label>
-          <input id="placement-name" name="name" maxLength={80} className="field" />
-        </div>
-        {fields.length === 0 ? (
-          <p className="text-sm text-muted">
-            This workspace has no tracking parameters yet, so the placement only gets a name.{" "}
-            <a href={manageHref} className="text-teal hover:underline">
-              Add parameters
-            </a>
-          </p>
-        ) : (
-          <ParameterInputs fields={fields} errors={state.fieldErrors} />
-        )}
+        <LabelledLinkFields
+          fields={fields}
+          errors={state.fieldErrors}
+          idPrefix="param"
+          onTotal={setTotal}
+          noLabels={
+            <p className="text-sm text-muted">
+              This workspace has no labels yet, so the labelled link gets none.{" "}
+              <a href={manageHref} className="text-teal hover:underline">
+                Add labels
+              </a>
+            </p>
+          }
+        />
       </div>
 
       {reviewing ? (
@@ -125,8 +142,8 @@ function Fields({
             ))}
           </dl>
           <p className="text-xs text-muted">
-            The placement gets its own short address and QR code. Its labels cannot be changed afterwards; create a new
-            placement instead.
+            {total > 1 ? `Each of the ${total.toLocaleString("en")} labelled links gets` : "The labelled link gets"} its own short address and QR code. Labels
+            cannot be changed afterwards, since it may already be printed or sent; create a new one instead.
           </p>
         </div>
       ) : null}
@@ -135,7 +152,7 @@ function Fields({
         {reviewing ? (
           <>
             <button type="submit" className="btn-primary" disabled={pending}>
-              {pending ? "Creating…" : "Create placement"}
+              {pending ? "Creating…" : total > 1 ? `Create ${total.toLocaleString("en")} labelled links` : "Create labelled link"}
             </button>
             <button
               type="button"
@@ -146,7 +163,13 @@ function Fields({
             </button>
           </>
         ) : (
-          <button type="button" onClick={review} className="btn-primary">
+          <button
+            type="button"
+            onClick={review}
+            className="btn-primary"
+            // A workspace with labels needs at least one picked; one without can still make a plain one.
+            disabled={total > MAX_LABELLED_LINKS || (total === 0 && fields.length > 0)}
+          >
             Review
           </button>
         )}

@@ -3,8 +3,10 @@
 import { useActionState, useState } from "react";
 import { createLink } from "@/lib/actions";
 import { FilterSelect } from "@/components/filter-select";
-import { ParameterInputs, type PlacementField } from "@/components/parameter-inputs";
+import { LabelledLinkFields } from "@/components/labelled-link-fields";
+import type { PlacementField } from "@/components/parameter-inputs";
 import { TargetFields } from "@/components/target-fields";
+import { MAX_LABELLED_LINKS } from "@/lib/parameters";
 import type { Role } from "@/lib/roles";
 import type { CreateState, LinkKind } from "@/lib/types";
 
@@ -56,8 +58,12 @@ function LinkFormFields({
   const [kind, setKind] = useState<LinkKind>("redirect");
   const workspace = workspaces.find((w) => w.id === workspaceId);
   const role = workspace?.role;
-  // Reopens after a rejected placement value so the error shows.
-  const [addPlacement, setAddPlacement] = useState(Boolean(state.fieldErrors && Object.keys(state.fieldErrors).length));
+  // Labelled links are added only after the user opens the section; it reopens after rejected values.
+  const [labelling, setLabelling] = useState(() => Object.keys(state.fieldErrors ?? {}).length > 0);
+  // How many labelled links the ticked values make, reported by the fields.
+  const [total, setTotal] = useState(1);
+  const linkCount = labelling ? total : 1;
+  const tooMany = linkCount > MAX_LABELLED_LINKS;
 
   return (
     <form
@@ -100,41 +106,51 @@ function LinkFormFields({
           <input id="slug" name="slug" type="text" maxLength={32} placeholder="auto" className="field" spellCheck={false} />
         </div>
       </div>
-      {workspace?.canPlace ? (
-        <fieldset className="grid gap-3 rounded-xl border border-line bg-paper/60 p-4">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              name="add_placement"
-              checked={addPlacement}
-              onChange={(event) => setAddPlacement(event.target.checked)}
-            />
-            Add a placement now <span className="font-normal text-muted">optional</span>
-          </label>
-          <p className="-mt-1 text-sm text-muted">
-            A placement is one QR code or printed spot with its own address and labels. You can add more on the
-            link&apos;s page.
+      {workspace?.canPlace && !labelling ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setLabelling(true)}
+            className="rounded-full border border-line bg-paper px-4 py-2 text-sm font-semibold transition hover:border-teal"
+          >
+            + Add labelled links
+          </button>
+          <p className="mt-1.5 text-xs text-muted">
+            Optional. Extra short links with labels such as store or channel, to compare where visits came from.
           </p>
-          {addPlacement ? (
-            <>
-              <div className="grid gap-2">
-                <label htmlFor="placement_name" className="text-sm font-medium">
-                  Placement name <span className="font-normal text-muted">optional, such as “Entrance poster”</span>
-                </label>
-                <input id="placement_name" name="placement_name" maxLength={80} className="field" />
-              </div>
-              {workspace.fields.length > 0 ? (
-                <ParameterInputs fields={workspace.fields} errors={state.fieldErrors ?? {}} idPrefix="new-param" />
-              ) : (
-                <p className="text-sm text-muted">
-                  {workspace.name} has no tracking parameters yet.{" "}
-                  <a href={`/workspaces/${workspace.id}/parameters`} className="text-teal hover:underline">
-                    Add parameters
-                  </a>
-                </p>
-              )}
-            </>
-          ) : null}
+        </div>
+      ) : null}
+      {workspace?.canPlace && labelling ? (
+        <fieldset className="relative grid gap-3 rounded-xl border border-line bg-paper/60 p-4">
+          <legend className="px-1 text-sm font-medium">Labelled links</legend>
+          <button
+            type="button"
+            onClick={() => setLabelling(false)}
+            className="absolute top-3 right-4 text-xs text-muted hover:text-warn"
+          >
+            Remove
+          </button>
+          <p className="-mt-1 text-sm text-muted">
+            Extra short links to the same destination, each with labels such as store or channel, so reports show
+            which one people used. The main link still works on its own. Every combination of the ticked values gets
+            its own labelled link and QR code.
+          </p>
+          <LabelledLinkFields
+            // Labels belong to one workspace; switching starts over.
+            key={workspaceId}
+            fields={workspace.fields}
+            errors={state.fieldErrors ?? {}}
+            idPrefix="new-param"
+            onTotal={setTotal}
+            noLabels={
+              <p className="text-sm text-muted">
+                {workspace.name} has no labels yet, such as store code or channel.{" "}
+                <a href={`/workspaces/${workspace.id}/parameters`} className="text-teal hover:underline">
+                  Add labels
+                </a>
+              </p>
+            }
+          />
         </fieldset>
       ) : null}
       {state.error ? (
@@ -145,19 +161,30 @@ function LinkFormFields({
       {state.slug ? (
         <p className="text-sm text-teal">
           Created <span className="font-mono">/r/{state.slug}</span>
-          {state.placementCode ? (
+          {state.queuedCount ? (
             <>
-              {" "}with placement <span className="font-mono">/q/{state.placementCode}</span>.{" "}
-              <a href={`/stats/${state.slug}#placements`} className="underline">
-                Open its QR code
+              . Making {state.queuedCount.toLocaleString("en")} labelled links now.{" "}
+              <a href={`/stats/${state.slug}?tab=links`} className="underline">
+                Their QR codes are on the link&apos;s page as a zip
+              </a>
+            </>
+          ) : state.placementCode ? (
+            <>
+              {" "}with the labelled link <span className="font-mono">/q/{state.placementCode}</span>.{" "}
+              <a href={`/stats/${state.slug}?tab=links`} className="underline">
+                Open it
               </a>
             </>
           ) : null}
         </p>
       ) : null}
       <div>
-        <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? "Creating…" : kind === "page" ? "Create page" : "Create link"}
+        <button type="submit" className="btn-primary" disabled={pending || tooMany}>
+          {pending
+            ? "Creating…"
+            : `${kind === "page" ? "Create page" : "Create link"}${
+                linkCount > 1 ? ` and ${linkCount.toLocaleString("en")} labelled links` : ""
+              }`}
         </button>
       </div>
     </form>

@@ -110,3 +110,44 @@ input[type="radio"] {
   padding: 2rem 1.25rem;
   color: var(--color-muted);
 }
+
+/* Section levels. A page has one or two .panel-title sections that carry its main job;
+   supporting blocks use .sub-title, and rare, destructive settings sit in a .danger-zone. */
+.panel {
+  border-radius: 1rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
+  padding: 1.25rem;
+}
+
+.panel-title {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+
+.sub-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.danger-zone {
+  border-radius: 1rem;
+  border: 1px solid rgba(143, 61, 43, 0.35);
+  background: var(--color-card);
+  padding: 1.25rem;
+}
+
+.btn-secondary {
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-teal);
+}

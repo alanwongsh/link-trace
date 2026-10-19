@@ -54,7 +54,7 @@ export function VisitorMap({ countries: rows }: { countries: CountryRow[] }) {
     <section className="rounded-2xl border border-line bg-card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-serif text-2xl">Visitor map</h2>
+          <h2 className="sub-title">Visitor map</h2>
           <p className="mt-1 text-sm text-muted">
             Darker countries had more clicks. Visits from this computer are not on the map.
           </p>

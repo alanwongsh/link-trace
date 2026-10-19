@@ -34,14 +34,10 @@ export function parseBulkCsv(definitions: ParameterDefinition[], text: string): 
     if (seen.has(column)) result.problems.push({ line: 1, message: `The column ${column} appears twice.` });
     seen.add(column);
     if (column !== NAME_COLUMN && !active.has(column)) {
-      result.problems.push({ line: 1, message: `${column} is not an active parameter in this workspace.` });
+      result.problems.push({ line: 1, message: `${column} is not an active label in this workspace.` });
     }
   }
   result.columns = header.filter((column) => column);
-  const missing = definitions.filter((d) => d.isActive && d.isRequired && !seen.has(d.key));
-  for (const definition of missing) {
-    result.problems.push({ line: 1, message: `The required column ${definition.key} (${definition.name}) is missing.` });
-  }
   if (result.problems.length) return result;
 
   const body = table.slice(1);

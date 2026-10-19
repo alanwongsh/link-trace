@@ -31,7 +31,8 @@ export function BulkPlacementForm({ slug, columns }: { slug: string; columns: st
   return (
     <div className="grid gap-3">
       <p className="text-sm text-muted">
-        One row per placement. Line 1 lists the columns:{" "}
+        For different setups per row, such as a different spot in each store. One row per labelled link. Line 1 lists the
+        columns:{" "}
         <span className="font-mono">{columns.join(", ")}</span>. Only the rows given are created, up to{" "}
         {MAX_BULK_ROWS.toLocaleString("en")} at a time.{" "}
         <a href={`/stats/${slug}/bulk/template`} className="text-teal hover:underline">
@@ -39,7 +40,7 @@ export function BulkPlacementForm({ slug, columns }: { slug: string; columns: st
         </a>
       </p>
       <label htmlFor="bulk-csv" className="sr-only">
-        Placements CSV
+        Labelled links CSV
       </label>
       <textarea
         id="bulk-csv"
@@ -86,7 +87,7 @@ export function BulkPlacementForm({ slug, columns }: { slug: string; columns: st
         </button>
         {canCreate ? (
           <button type="button" onClick={() => send("create")} disabled={pending} className="btn-primary">
-            Create {state.ready.toLocaleString("en")} placement{state.ready === 1 ? "" : "s"} and QR codes
+            Create {state.ready.toLocaleString("en")} labelled link{state.ready === 1 ? "" : "s"}
           </button>
         ) : null}
         {state.error ? (
@@ -98,7 +99,7 @@ export function BulkPlacementForm({ slug, columns }: { slug: string; columns: st
 
       {state.jobId ? (
         <p className="rounded-xl border border-teal/40 bg-teal/5 px-4 py-3 text-sm text-teal" role="status">
-          Queued {state.ready.toLocaleString("en")} placements. Progress and the download appear under Bulk uploads.
+          Making {state.ready.toLocaleString("en")} labelled links. Progress and a zip of their QR codes appear under QR code downloads.
         </p>
       ) : state.checked && checkedText === csv ? (
         <div className="grid gap-2 rounded-xl border border-line bg-paper px-4 py-3 text-sm" role="status">

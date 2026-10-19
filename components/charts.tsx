@@ -70,7 +70,7 @@ export function Breakdown({
   const max = Math.max(...rows.map((row) => row.clicks), 0);
   return (
     <article className="rounded-2xl border border-line bg-card p-5">
-      <h2 className="font-serif text-2xl">{title}</h2>
+      <h2 className="sub-title">{title}</h2>
       {rows.length === 0 ? (
         <p className="mt-4 text-sm text-muted">{empty}</p>
       ) : (

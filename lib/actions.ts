@@ -25,8 +25,9 @@ import {
 } from "@/lib/auth";
 import { deleteLink, findDestination, insertLink, moveLink, saveTags, saveTarget } from "@/lib/data";
 import { hashPassword, passwordProblem, verifyAgainstDummy, verifyPassword } from "@/lib/password";
+import { queueLabelledLinks } from "@/lib/bulk-queue";
 import { parameterDefinitions } from "@/lib/parameter-data";
-import { submittedParameterValues, validateParameterValues, type ParameterValue } from "@/lib/parameters";
+import { MAX_LABELLED_LINKS, planPlacements, submittedParameterLists, type ParameterValue } from "@/lib/parameters";
 import { insertPlacement, linkHasPlacements } from "@/lib/placement-data";
 import { SESSION_COOKIE, safeEqual } from "@/lib/session";
 import {
@@ -199,19 +200,22 @@ export async function createLink(
     };
   }
 
-  // An optional first placement. Its values are checked before the link is created, so a
-  // rejected value never leaves a half-made link.
-  const withPlacement = formData.get("add_placement") === "on";
+  // Optional placements, made when any value is picked (or a name is sent): one per combination of
+  // the picked values. They are checked before the link is created, so a rejected value never
+  // leaves a half-made link.
   const placementName = String(formData.get("placement_name") ?? "").trim();
-  let placementValues: ParameterValue[] = [];
+  const submittedLists = submittedParameterLists(formData);
+  const withPlacement = Boolean(placementName) || Object.values(submittedLists).some((list) => list.length > 0);
+  const qrFormat = formData.get("qr_format") === "svg" ? "svg" : "png";
+  let placementRows: ParameterValue[][] = [];
   if (withPlacement) {
     if (!allowed(user, workspaceId, "placements.manage")) {
-      return { error: "You cannot add placements in that workspace.", slug: "" };
+      return { error: "You cannot add labelled links in that workspace.", slug: "" };
     }
-    if (placementName.length > 80) return { error: "Keep the placement name under 80 characters.", slug: "" };
-    const checked = validateParameterValues(await parameterDefinitions(workspaceId), submittedParameterValues(formData));
-    if (!checked.ok) return { error: "Check the highlighted placement fields.", slug: "", fieldErrors: checked.errors };
-    placementValues = checked.values;
+    if (placementName.length > 80) return { error: "Keep the nickname under 80 characters.", slug: "" };
+    const planned = planPlacements(await parameterDefinitions(workspaceId), submittedLists, MAX_LABELLED_LINKS);
+    if (!planned.ok) return { error: "Check the highlighted labels.", slug: "", fieldErrors: planned.errors };
+    placementRows = planned.rows;
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -237,6 +241,31 @@ export async function createLink(
       revalidatePath("/");
       if (!withPlacement) return { error: "", slug };
 
+      // Several go through bulk jobs of up to 1,000, which also build their QR zips.
+      if (placementRows.length > 1) {
+        try {
+          const jobIds = await queueLabelledLinks({
+            linkId: created.data.id,
+            rows: placementRows.map((values) => ({ name: placementName || null, values })),
+            format: qrFormat,
+            createdBy: user.id,
+          });
+          await audit({
+            actor: actor(user),
+            action: "placement.bulk_queued",
+            workspaceId,
+            targetType: "link",
+            targetId: slug,
+            details: { bulkJobIds: jobIds, rows: placementRows.length, format: qrFormat, from: "create-link" },
+          });
+          return { error: "", slug, queuedCount: placementRows.length };
+        } catch (error) {
+          console.error("Could not queue the first QR codes:", error instanceof Error ? error.message : error);
+          return { error: "The link was created, but its labelled links were not. Add them on the link's page.", slug };
+        }
+      }
+
+      const placementValues = placementRows[0] ?? [];
       try {
         const placement = await insertPlacement({
           linkId: created.data.id,
@@ -255,7 +284,7 @@ export async function createLink(
         return { error: "", slug, placementCode: placement.code };
       } catch (error) {
         console.error("Could not create the first placement:", error instanceof Error ? error.message : error);
-        return { error: "The link was created, but its placement was not. Add it on the link's page.", slug };
+        return { error: "The link was created, but its labelled link was not. Add it on the link's page.", slug };
       }
     }
     if (created.message !== "That slug is already in use." || requested.trim()) {
@@ -365,7 +394,7 @@ export async function moveLinkToWorkspace(_prev: FormState, formData: FormData):
   }
   // Placement labels use this workspace's parameters, which the other workspace does not have.
   if (await linkHasPlacements(link.id)) {
-    return { error: "This link has placements labelled with this workspace's parameters, so it cannot be moved.", ok: "" };
+    return { error: "This link has labelled links with this workspace's labels, so it cannot be moved.", ok: "" };
   }
 
   const moved = await moveLink(slug, workspaceId, user.id);

@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/accounts";
 import { allowed, can, requireUser, type SessionUser } from "@/lib/auth";
+import { queueLabelledLinks } from "@/lib/bulk-queue";
 import { findDestination } from "@/lib/data";
 import { parameterDefinitions } from "@/lib/parameter-data";
-import { submittedParameterValues, validateParameterValues } from "@/lib/parameters";
+import { MAX_LABELLED_LINKS, planPlacements, submittedParameterLists } from "@/lib/parameters";
 import { findPlacement, insertPlacement, setPlacementActive } from "@/lib/placement-data";
 import { normalizeSlug } from "@/lib/slug";
 import type { FormState, PlacementState } from "@/lib/types";
@@ -31,21 +32,43 @@ export async function createPlacement(_prev: PlacementState, formData: FormData)
     return failed("That link could not be found.");
   }
   if (!allowed(user, link.workspaceId, "placements.manage")) {
-    return failed("You cannot add placements in this workspace.");
+    return failed("You cannot add labelled links in this workspace.");
   }
 
   const rawName = String(formData.get("name") ?? "").trim();
-  if (rawName.length > 80) return failed("Keep the name under 80 characters.");
+  if (rawName.length > 80) return failed("Keep the nickname under 80 characters.");
 
   // The workspace comes from the link, never from the form.
   const definitions = await parameterDefinitions(link.workspaceId);
-  const checked = validateParameterValues(definitions, submittedParameterValues(formData));
-  if (!checked.ok) return failed("Check the highlighted fields.", checked.errors);
+  const planned = planPlacements(definitions, submittedParameterLists(formData), MAX_LABELLED_LINKS);
+  if (!planned.ok) return failed("Check the highlighted fields.", planned.errors);
 
+  // Several go through bulk jobs of up to 1,000, which also build their QR zips.
+  if (planned.rows.length > 1) {
+    const format = formData.get("qr_format") === "svg" ? "svg" : "png";
+    const jobIds = await queueLabelledLinks({
+      linkId: link.id,
+      rows: planned.rows.map((values) => ({ name: rawName || null, values })),
+      format,
+      createdBy: user.id,
+    });
+    await audit({
+      actor: actor(user),
+      action: "placement.bulk_queued",
+      workspaceId: link.workspaceId,
+      targetType: "link",
+      targetId: slug!,
+      details: { bulkJobIds: jobIds, rows: planned.rows.length, format, from: "placement-form" },
+    });
+    revalidatePath(`/stats/${slug}`);
+    return { error: "", fieldErrors: {}, code: "", queuedCount: planned.rows.length, queuedJobId: jobIds[0] };
+  }
+
+  const values = planned.rows[0] ?? [];
   const created = await insertPlacement({
     linkId: link.id,
     name: rawName || null,
-    values: checked.values,
+    values,
     createdBy: user.id,
   });
   await audit({
@@ -54,7 +77,7 @@ export async function createPlacement(_prev: PlacementState, formData: FormData)
     workspaceId: link.workspaceId,
     targetType: "placement",
     targetId: created.code,
-    details: { slug, name: rawName || null, values: Object.fromEntries(checked.values.map((v) => [v.key, v.value])) },
+    details: { slug, name: rawName || null, values: Object.fromEntries(values.map((v) => [v.key, v.value])) },
   });
   revalidatePath(`/stats/${slug}`);
   return { error: "", fieldErrors: {}, code: created.code };
@@ -65,7 +88,7 @@ export async function setPlacementStatus(_prev: FormState, formData: FormData): 
   const id = String(formData.get("placement_id") ?? "");
   const placement = UUID.test(id) ? await findPlacement(id) : null;
   if (!placement || !allowed(user, placement.workspaceId, "placements.manage")) {
-    return { error: "That placement could not be found.", ok: "" };
+    return { error: "That labelled link could not be found.", ok: "" };
   }
 
   const isActive = formData.get("is_active") === "true";

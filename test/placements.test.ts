@@ -30,6 +30,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
   };
 });
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("@/lib/origin", () => ({ appOrigin: async () => "https://lt.example" }));
 
 const { GET: placementRoute } = await import("@/app/q/[code]/route");
 const { GET: tagRoute } = await import("@/app/r/[slug]/[tag]/route");
@@ -101,16 +102,13 @@ describe("creating placements", () => {
     expect((await listPlacements(linkId))[0].values).toEqual([]);
   });
 
-  it("enforces required parameters and rejects unknown options and keys", async () => {
+  it("rejects unknown options and keys", async () => {
     await addStoreParameter();
-    expect(await createPlacement(empty, form({ slug: "promo", "param:booth": "B1" }))).toMatchObject({
-      fieldErrors: { store_code: "Store is required." },
-    });
     expect((await createPlacement(empty, form({ slug: "promo", "param:store_code": "ZZ9" }))).fieldErrors.store_code).toMatch(
       /not an option/,
     );
     expect((await createPlacement(empty, form({ slug: "promo", "param:store_code": "KL001", "param:other": "x" }))).fieldErrors).toEqual({
-      other: "This parameter is not available.",
+      other: "This label is not available.",
     });
     expect(await listPlacements(linkId)).toEqual([]);
   });
@@ -123,13 +121,13 @@ describe("creating placements", () => {
       .returning({ id: links.id });
     // store_code belongs to the first workspace, so it is not available here.
     const result = await createPlacement(empty, form({ slug: "other", "param:store_code": "KL001" }));
-    expect(result.fieldErrors).toEqual({ store_code: "This parameter is not available." });
+    expect(result.fieldErrors).toEqual({ store_code: "This label is not available." });
     expect(await listPlacements(other.id)).toEqual([]);
   });
 
   it("needs the editor role, and hides links in other workspaces", async () => {
     session.user = await createUser({ [workspaceId]: "viewer" });
-    expect((await createPlacement(empty, form({ slug: "promo" }))).error).toBe("You cannot add placements in this workspace.");
+    expect((await createPlacement(empty, form({ slug: "promo" }))).error).toBe("You cannot add labelled links in this workspace.");
     session.user = await createUser({ [otherWorkspaceId]: "owner" });
     expect((await createPlacement(empty, form({ slug: "promo" }))).error).toBe("That link could not be found.");
   });
@@ -154,7 +152,7 @@ describe("first placement on the create-link form", () => {
     await addStoreParameter();
     const result = await createLink(
       { error: "", slug: "" },
-      form({ ...base(), slug: "with-qr", add_placement: "on", placement_name: "Poster", "param:store_code": "PG002" }),
+      form({ ...base(), slug: "with-qr", placement_name: "Poster", "param:store_code": "PG002" }),
     );
     expect(result).toMatchObject({ error: "", slug: "with-qr", placementCode: expect.stringMatching(/^[a-z0-9]{8}$/) });
     const [link] = await db().select().from(links).where(eq(links.slug, "with-qr"));
@@ -165,26 +163,118 @@ describe("first placement on the create-link form", () => {
 
   it("creates nothing when a placement value is rejected", async () => {
     await addStoreParameter();
-    const missing = await createLink({ error: "", slug: "" }, form({ ...base(), slug: "nope", add_placement: "on" }));
-    expect(missing).toMatchObject({ slug: "", fieldErrors: { store_code: "Store is required." } });
     const wrong = await createLink(
       { error: "", slug: "" },
-      form({ ...base(), slug: "nope", add_placement: "on", "param:store_code": "ZZ9" }),
+      form({ ...base(), slug: "nope", "param:store_code": "ZZ9" }),
     );
     expect(wrong.fieldErrors?.store_code).toMatch(/not an option/);
     expect(await db().select().from(links).where(eq(links.slug, "nope"))).toEqual([]);
   });
 
-  it("ignores placement fields unless the box is ticked, and works with no parameters", async () => {
+  it("skips the placement when nothing is filled in, and works with no parameters", async () => {
     await addStoreParameter();
-    const plain = await createLink({ error: "", slug: "" }, form({ ...base(), slug: "plain-new", "param:store_code": "ZZ9" }));
+    const plain = await createLink(
+      { error: "", slug: "" },
+      form({ ...base(), slug: "plain-new", placement_name: " ", "param:store_code": "" }),
+    );
     expect(plain).toEqual({ error: "", slug: "plain-new" });
     session.user = await createUser({ [otherWorkspaceId]: "editor" });
     const bare = await createLink(
       { error: "", slug: "" },
-      form({ workspace_id: otherWorkspaceId, url: "https://example.com", slug: "bare", add_placement: "on" }),
+      form({ workspace_id: otherWorkspaceId, url: "https://example.com", slug: "bare", placement_name: "Counter" }),
     );
     expect(bare.placementCode).toMatch(/^[a-z0-9]{8}$/);
+  });
+});
+
+describe("several values for one label", () => {
+  // form() keeps one value per name; these repeat a field the way the picker does.
+  function withRepeats(values: Record<string, string>, repeats: [string, string][]) {
+    const data = form(values);
+    for (const [name, value] of repeats) data.append(name, value);
+    return data;
+  }
+
+  async function storesOf(slug: string) {
+    const [link] = await db().select().from(links).where(eq(links.slug, slug));
+    const rows = await listPlacements(link.id);
+    return rows.map((p) => [p.name, ...p.values.map((v) => `${v.key}=${v.value}`)]).sort();
+  }
+
+  it("makes one QR code per store from the create-link form, sharing the other labels", async () => {
+    await addStoreParameter();
+    const result = await createLink(
+      { error: "", slug: "" },
+      withRepeats(
+        { workspace_id: workspaceId, url: "https://example.com/new", slug: "many", placement_name: "Poster", "param:booth": "B1" },
+        [
+          ["param:store_code", "KL001"],
+          ["param:store_code", "pg002"],
+          ["param:store_code", "kl001"],
+        ],
+      ),
+    );
+    expect(result).toEqual({ error: "", slug: "many", queuedCount: 2 });
+    await Promise.all(pending.splice(0));
+    expect(await storesOf("many")).toEqual([
+      ["Poster", "store_code=KL001", "booth=B1"],
+      ["Poster", "store_code=PG002", "booth=B1"],
+    ]);
+  });
+
+  it("makes every combination when several labels have several values", async () => {
+    await addStoreParameter();
+    const result = await createLink(
+      { error: "", slug: "" },
+      withRepeats({ workspace_id: workspaceId, url: "https://example.com/new", slug: "combo", qr_format: "svg" }, [
+        ["param:store_code", "KL001"],
+        ["param:store_code", "PG002"],
+        ["param:booth", "B1"],
+        ["param:booth", "B2"],
+      ]),
+    );
+    expect(result).toEqual({ error: "", slug: "combo", queuedCount: 4 });
+    await Promise.all(pending.splice(0));
+    expect(await storesOf("combo")).toEqual([
+      [null, "store_code=KL001", "booth=B1"],
+      [null, "store_code=KL001", "booth=B2"],
+      [null, "store_code=PG002", "booth=B1"],
+      [null, "store_code=PG002", "booth=B2"],
+    ]);
+    const [job] = await sql<{ format: string }[]>`select b.format from bulk_jobs b join links l on l.id = b.link_id where l.slug = 'combo'`;
+    expect(job.format).toBe("svg");
+  });
+
+  it("rejects the whole batch when one store is not an option", async () => {
+    await addStoreParameter();
+    const result = await createPlacement(
+      empty,
+      withRepeats({ slug: "promo" }, [
+        ["param:store_code", "KL001"],
+        ["param:store_code", "ZZ9"],
+      ]),
+    );
+    expect(result.fieldErrors.store_code).toMatch(/"ZZ9" is not an option/);
+    expect(await listPlacements(linkId)).toEqual([]);
+  });
+
+  it("queues a zip from the link page's form too", async () => {
+    await addStoreParameter();
+    const result = await createPlacement(
+      empty,
+      withRepeats({ slug: "promo", name: "Counter" }, [
+        ["param:store_code", "KL001"],
+        ["param:store_code", "PG002"],
+      ]),
+    );
+    expect(result).toMatchObject({ error: "", code: "", queuedCount: 2, queuedJobId: expect.any(String) });
+    await Promise.all(pending.splice(0));
+    expect(await storesOf("promo")).toEqual([
+      ["Counter", "store_code=KL001"],
+      ["Counter", "store_code=PG002"],
+    ]);
+    const [job] = await sql<{ status: string; total: number }[]>`select status, total from bulk_jobs where id = ${result.queuedJobId!}`;
+    expect(job).toEqual({ status: "done", total: 2 });
   });
 });
 

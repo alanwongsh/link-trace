@@ -135,15 +135,13 @@ export function validateParameterValues(
   const known = new Set(active.map((d) => d.key));
 
   for (const key of Object.keys(input)) {
-    if (!known.has(key)) errors[key] = "This parameter is not available.";
+    if (!known.has(key)) errors[key] = "This label is not available.";
   }
 
   for (const definition of active) {
     const raw = (input[definition.key] ?? "").trim();
-    if (!raw) {
-      if (definition.isRequired) errors[definition.key] = `${definition.name} is required.`;
-      continue;
-    }
+    // Every label is optional; isRequired is no longer set or enforced.
+    if (!raw) continue;
     if (definition.fieldType === "dropdown") {
       const option = definition.options.find((o) => o.isActive && o.value.toLowerCase() === raw.toLowerCase());
       if (!option) {
@@ -163,6 +161,54 @@ export function validateParameterValues(
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values };
 }
 
+// Labelled links one create can make from picked values; they are queued in batches of
+// MAX_BULK_ROWS. More go through several creates or CSV uploads.
+export const MAX_LABELLED_LINKS = 5000;
+
+// How many labelled links the picked values make: every combination, so the product of the counts.
+export function combinationCount(lists: Record<string, string[]>): number {
+  return Object.values(lists).reduce((total, list) => total * Math.max(1, list.length), 1);
+}
+
+// Every combination of the picked values, one placement each: stores A and B with channels email and
+// whatsapp make four. Each value is checked once, as validateParameterValues does, before any are made.
+export function planPlacements(
+  definitions: ParameterDefinition[],
+  lists: Record<string, string[]>,
+  max: number,
+): { ok: true; rows: ParameterValue[][] } | { ok: false; errors: Record<string, string> } {
+  const total = combinationCount(lists);
+  if (total > max) {
+    const widest = Object.keys(lists).sort((a, b) => lists[b].length - lists[a].length)[0];
+    return {
+      ok: false,
+      errors: { [widest]: `That makes ${total.toLocaleString("en")} labelled links; the limit is ${max.toLocaleString("en")} at a time.` },
+    };
+  }
+
+  // The first value of each list checks required and unknown labels; the others are checked one at a time.
+  const first = Object.fromEntries(Object.entries(lists).map(([key, list]) => [key, list[0] ?? ""]));
+  const base = validateParameterValues(definitions, first);
+  if (!base.ok) return base;
+  const errors: Record<string, string> = {};
+  const choices = new Map(base.values.map((v) => [v.key, [v]]));
+  for (const [key, list] of Object.entries(lists)) {
+    for (const value of list.slice(1)) {
+      const checked = validateParameterValues(definitions, { ...first, [key]: value });
+      if (!checked.ok) errors[key] ??= checked.errors[key];
+      else choices.get(key)!.push(checked.values.find((v) => v.key === key)!);
+    }
+  }
+  if (Object.keys(errors).length) return { ok: false, errors };
+
+  // In the workspace's parameter order, as validateParameterValues returns them.
+  let rows: ParameterValue[][] = [[]];
+  for (const { key } of base.values) {
+    rows = rows.flatMap((row) => choices.get(key)!.map((value) => [...row, value]));
+  }
+  return { ok: true, rows };
+}
+
 // Values from a form whose parameter fields are named "param:<key>".
 export function submittedParameterValues(formData: FormData): Record<string, string> {
   const values: Record<string, string> = {};
@@ -170,4 +216,17 @@ export function submittedParameterValues(formData: FormData): Record<string, str
     if (name.startsWith("param:") && typeof value === "string") values[name.slice("param:".length)] = value;
   }
   return values;
+}
+
+// Like submittedParameterValues, but keeps every non-empty value of a repeated field, in order and
+// without case-insensitive repeats. A field sent only empty is kept with no values.
+export function submittedParameterLists(formData: FormData): Record<string, string[]> {
+  const lists: Record<string, string[]> = {};
+  for (const [name, raw] of formData.entries()) {
+    if (!name.startsWith("param:") || typeof raw !== "string") continue;
+    const list = (lists[name.slice("param:".length)] ??= []);
+    const value = raw.trim();
+    if (value && !list.some((v) => v.toLowerCase() === value.toLowerCase())) list.push(value);
+  }
+  return lists;
 }
