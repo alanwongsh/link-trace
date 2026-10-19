@@ -5,7 +5,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { clicks, links, placements } from "@/lib/db/schema";
 import { JOB_NAMES, type ClickJob } from "@/lib/jobs/catalog";
 import { insertClicks } from "@/lib/jobs/click-job";
+import { createDriver, describeQueue } from "@/lib/jobs/create-driver";
 import { jobHandlers } from "@/lib/jobs/handlers";
+import { PgBossDriver } from "@/lib/jobs/pgboss-driver";
 import { uuidv7 } from "@/lib/uuid7";
 import { createWorkspace, db, resetData } from "./helpers";
 import { testDatabaseUrl } from "./test-db";
@@ -68,6 +70,22 @@ function click(overrides: Partial<ClickJob> = {}): ClickJob {
     ...overrides,
   };
 }
+
+describe("choosing the queue", () => {
+  it("uses pg-boss by default, with the worker preferring the migration address", () => {
+    expect(createDriver("sender", { DATABASE_URL: "postgresql://app@host/db" })).toBeInstanceOf(PgBossDriver);
+    expect(
+      describeQueue({ DATABASE_URL: "postgresql://u:secret@pooler:6543/db", DATABASE_MIGRATION_URL: "postgresql://u:secret@pooler:5432/db" }),
+    ).toBe("pgboss on pooler:5432");
+  });
+
+  it("rejects an unknown driver and a missing address", () => {
+    expect(() => createDriver("worker", { QUEUE_DRIVER: "bullmq", DATABASE_URL: "postgresql://x@y/z" })).toThrow(
+      'Unknown QUEUE_DRIVER "bullmq". Supported: pgboss.',
+    );
+    expect(() => createDriver("sender", {})).toThrow("The pgboss queue needs DATABASE_URL.");
+  });
+});
 
 describe("job catalog", () => {
   it("has a handler for every job", () => {

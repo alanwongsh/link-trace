@@ -10,7 +10,7 @@ import nextEnv from "@next/env";
 import postgres from "postgres";
 import { JOB_NAMES, JOBS } from "../lib/jobs/catalog.ts";
 import { jobHandlers } from "../lib/jobs/handlers.ts";
-import { PgBossDriver } from "../lib/jobs/pgboss-driver.ts";
+import { createDriver, describeQueue } from "../lib/jobs/create-driver.ts";
 
 nextEnv.loadEnvConfig(process.cwd());
 
@@ -19,13 +19,10 @@ if (!url) {
   console.error("Needs DATABASE_URL in .env.local or the environment.");
   process.exit(1);
 }
-if ((process.env.QUEUE_DRIVER || "pgboss") !== "pgboss") {
-  console.error(`QUEUE_DRIVER=${process.env.QUEUE_DRIVER} has no worker yet.`);
-  process.exit(1);
-}
 
 const sql = postgres(url, { prepare: false, max: 4, onnotice: () => {} });
-const driver = new PgBossDriver(url, "worker");
+// The same choice of queue as the app (QUEUE_DRIVER), so both always talk to the same one.
+const driver = createDriver("worker");
 await driver.start();
 
 const handlers = jobHandlers(sql);
@@ -36,7 +33,7 @@ for (const name of JOB_NAMES) {
   if (cron) await driver.schedule(name, cron);
 }
 
-console.log(`Worker running ${JOB_NAMES.join(", ")} on ${new URL(url).host}. Press Ctrl+C to stop.`);
+console.log(`Worker running ${JOB_NAMES.join(", ")} (${describeQueue()}). Press Ctrl+C to stop.`);
 
 async function shutdown(signal: string) {
   console.log(`${signal}: finishing current jobs, then stopping.`);
