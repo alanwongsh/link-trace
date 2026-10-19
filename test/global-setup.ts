@@ -7,7 +7,7 @@ import { testDatabaseUrl } from "./test-db";
 export default async function setup() {
   const client = postgres(testDatabaseUrl(), { max: 1, onnotice: () => {} });
   try {
-    await client.unsafe("drop schema if exists drizzle cascade; drop schema public cascade; create schema public;");
+    await client.unsafe("drop schema if exists drizzle cascade; drop schema if exists pgboss cascade; drop schema public cascade; create schema public;");
     await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
   } finally {
     await client.end();

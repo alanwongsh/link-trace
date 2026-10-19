@@ -1,3 +1,4 @@
+import { Breakdown, DailyBars, Stat } from "@/components/charts";
 import { CreateLinkForm, type WritableWorkspace } from "@/components/create-link-form";
 import { CopyButton } from "@/components/copy-button";
 import { QrButton } from "@/components/qr-button";
@@ -7,10 +8,12 @@ import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { WorkspaceFilter } from "@/components/workspace-filter";
 import { listWorkspaces } from "@/lib/accounts";
-import { can, requireUser, roleIn } from "@/lib/auth";
-import { listLinks } from "@/lib/data";
+import { allowed, can, requireUser, roleIn } from "@/lib/auth";
+import { listLinks, loadDashboard } from "@/lib/data";
+import { placementFields } from "@/lib/parameter-data";
 import { appOrigin } from "@/lib/origin";
 import { atLeast } from "@/lib/roles";
+import { countryName } from "@/lib/track";
 import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
@@ -33,10 +36,12 @@ export default async function HomePage({
   const current = params.ws && visible.some((w) => w.id === params.ws) ? params.ws : "all";
   const mine = params.mine === "1";
 
-  const result = await listLinks({
-    workspaceIds: current !== "all" ? [current] : user.isOrgAdmin ? "all" : visible.map((w) => w.id),
+  const filter = {
+    workspaceIds: current !== "all" ? [current] : user.isOrgAdmin ? ("all" as const) : visible.map((w) => w.id),
     createdBy: mine ? user.id : undefined,
-  });
+  };
+  const [result, dashboard] = await Promise.all([listLinks(filter), loadDashboard(filter)]);
+  const summary = dashboard.ok ? dashboard.data : null;
   const base = await appOrigin();
   const links = result.ok ? result.data : [];
   const visits = links.reduce((sum, link) => sum + link.click_count, 0);
@@ -44,9 +49,16 @@ export default async function HomePage({
     ? `${links.length} ${links.length === 1 ? "link" : "links"} · ${visits} visits`
     : undefined;
 
-  const writable: WritableWorkspace[] = visible
+  const editable = visible
     .map((w) => ({ ...w, role: roleIn(user, w.id) }))
-    .filter((w): w is WritableWorkspace => atLeast(w.role, "editor"));
+    .filter((w): w is typeof w & { role: NonNullable<typeof w.role> } => atLeast(w.role, "editor"));
+  // Parameters for the optional first placement, only where the user may add placements.
+  const writable: WritableWorkspace[] = await Promise.all(
+    editable.map(async (w) => {
+      const canPlace = allowed(user, w.id, "placements.manage");
+      return { ...w, canPlace, fields: canPlace && result.ok ? await placementFields(w.id) : [] };
+    }),
+  );
   const defaultWorkspaceId = writable.some((w) => w.id === current) ? current : writable[0]?.id;
   const showWorkspace = current === "all" && visible.length > 1;
 
@@ -54,14 +66,60 @@ export default async function HomePage({
     <>
       <TopBar meta={meta} />
       <main className="mx-auto grid max-w-5xl gap-8 px-6 py-10">
-        <div className="max-w-2xl">
-          <h1 className="font-serif text-4xl tracking-tight">Make a short link</h1>
-          <p className="mt-2 text-muted">
-            Each open stores the IP address, a first-party visitor id, browser, referrer,
-            and — on Vercel — country and city. Add platform tags to give each channel its own
-            link. Counts below skip known bots.
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-2xl">
+            <h1 className="font-serif text-4xl tracking-tight">Dashboard</h1>
+            <p className="mt-2 text-muted">
+              Visits across {current === "all" ? "your links" : "this workspace"}. Known bots are left out of the counts.
+            </p>
+          </div>
+          {result.ok && visible.length > 0 ? (
+            <WorkspaceFilter workspaces={filterOptions} current={current} mine={mine} />
+          ) : null}
         </div>
+        {result.ok && visible.length > 0 && summary ? (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
+              <Stat label="Links" value={links.length} hint={mine ? "Created by you" : "In this view"} />
+              <Stat label="Clicks" value={summary.clicks} hint={`${summary.clicks7d.toLocaleString("en")} in the last 7 days`} />
+              <Stat label="Visitors" value={summary.visitors} hint="Estimated from browser ids" />
+              <Stat
+                label="Today"
+                value={summary.clicksToday}
+                hint={`${summary.botClicks.toLocaleString("en")} bot hits left out`}
+              />
+            </section>
+            <section className="rounded-2xl border border-line bg-card p-5">
+              <h2 className="font-serif text-2xl">Last 30 days</h2>
+              <p className="mt-1 text-sm text-muted">Human visits per day, grouped in UTC. Hover a bar for its count.</p>
+              <DailyBars days={summary.daily} label="Human visits per day, last 30 days" />
+            </section>
+            <section className="grid gap-4 lg:grid-cols-3">
+              <Breakdown
+                title="Top links"
+                empty="No links yet."
+                rows={[...links]
+                  .filter((link) => link.click_count > 0)
+                  .sort((a, b) => b.click_count - a.click_count)
+                  .slice(0, 6)
+                  .map((link) => ({ label: link.title || link.slug, clicks: link.click_count, href: `/stats/${link.slug}` }))}
+              />
+              <Breakdown
+                title="Platforms"
+                rows={summary.tags.map((row) => ({ label: row.tag || "Untagged", clicks: row.clicks }))}
+              />
+              <Breakdown
+                title="Places"
+                rows={summary.countries.map((row) => ({
+                  label: row.country === "Unknown" ? "No location" : countryName(row.country),
+                  clicks: row.clicks,
+                }))}
+              />
+            </section>
+          </>
+        ) : !dashboard.ok && result.ok ? (
+          <p className="text-sm text-warn">{dashboard.message}</p>
+        ) : null}
         {!result.ok ? (
           result.missingConfig || result.missingSchema ? (
             <SetupGuide message={result.message} />
@@ -69,11 +127,14 @@ export default async function HomePage({
             <p className="text-sm text-warn">{result.message}</p>
           )
         ) : visible.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line px-5 py-8 text-muted">
+          <p className="empty-state">
             You are not in any workspace yet, so there are no links to show. Ask an org admin to add you.
           </p>
         ) : defaultWorkspaceId ? (
-          <CreateLinkForm workspaces={writable} defaultWorkspaceId={defaultWorkspaceId} />
+          <section className="grid gap-3">
+            <h2 className="font-serif text-2xl">Make a short link</h2>
+            <CreateLinkForm workspaces={writable} defaultWorkspaceId={defaultWorkspaceId} />
+          </section>
         ) : (
           <p className="text-sm text-muted">
             You can view links but not create them. Ask an org admin for the editor role.
@@ -81,16 +142,9 @@ export default async function HomePage({
         )}
         {result.ok && visible.length > 0 ? (
           <section className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-serif text-2xl">Links</h2>
-              <WorkspaceFilter
-                workspaces={filterOptions}
-                current={current}
-                mine={mine}
-              />
-            </div>
+            <h2 className="font-serif text-2xl">Links</h2>
             {links.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-line px-5 py-8 text-muted">
+              <p className="empty-state">
                 {mine ? "You have not created any links here yet." : "No links yet. Create one, then share the /r/ address."}
               </p>
             ) : null}

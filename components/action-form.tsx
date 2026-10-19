@@ -23,6 +23,8 @@ export function ActionForm({
   confirm,
   className = "grid gap-3",
   inline = false,
+  buttonLabel,
+  quiet = false,
 }: {
   action: (state: FormState, formData: FormData) => Promise<FormState>;
   children?: ReactNode;
@@ -32,6 +34,10 @@ export function ActionForm({
   confirm?: string;
   className?: string;
   inline?: boolean;
+  /** Accessible name when the button shows only a symbol. */
+  buttonLabel?: string;
+  /** Hide the success message, for small row controls. */
+  quiet?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, initial);
 
@@ -49,7 +55,13 @@ export function ActionForm({
     >
       {children}
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" className={BUTTONS[variant]} disabled={pending}>
+        <button
+          type="submit"
+          className={BUTTONS[variant]}
+          disabled={pending}
+          aria-label={buttonLabel}
+          title={buttonLabel}
+        >
           {pending ? pendingLabel : submit}
         </button>
         {state.error ? (
@@ -57,7 +69,7 @@ export function ActionForm({
             {state.error}
           </p>
         ) : null}
-        {state.ok ? <p className="text-sm text-teal">{state.ok}</p> : null}
+        {state.ok && !quiet ? <p className="text-sm text-teal">{state.ok}</p> : null}
       </div>
     </form>
   );

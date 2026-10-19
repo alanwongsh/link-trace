@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -16,6 +17,9 @@ import {
 } from "drizzle-orm/pg-core";
 // Relative, so drizzle-kit can load this file without the @/ alias.
 import { PARAMETER_TYPES } from "../parameters";
+
+// Binary column, for files kept in the database (bulk QR zips).
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 // Time-ordered UUIDs (v7). uuid_v7() is created in drizzle/0004_uuid_v7.sql; Postgres 18 adds a built-in uuidv7().
 const uuidV7 = sql`uuid_v7()`;
@@ -146,6 +150,8 @@ export const clicks = pgTable(
     city: text("city"),
     isBot: boolean("is_bot").notNull().default(false),
     tag: text("tag"),
+    // Set when the visit came through a placement (/q/<code>, or a tag link mapped to one).
+    placementId: uuid("placement_id"),
     clickedAt: timestamp("clicked_at", { withTimezone: true, mode: "string" })
       .notNull()
       .defaultNow(),
@@ -157,6 +163,12 @@ export const clicks = pgTable(
       foreignColumns: [links.id],
     }).onDelete("cascade"),
     index("clicks_link_id_clicked_at_idx").on(table.linkId, table.clickedAt.desc()),
+    foreignKey({
+      name: "clicks_placement_id_fkey",
+      columns: [table.placementId],
+      foreignColumns: [placements.id],
+    }).onDelete("set null"),
+    index("clicks_placement_id_idx").on(table.placementId),
   ],
 );
 
@@ -214,6 +226,114 @@ export const trackingParameterOptions = pgTable(
     }).onDelete("cascade"),
     // Codes are unique regardless of case, but keep the case they were entered in.
     uniqueIndex("tracking_parameter_options_value").on(table.parameterId, sql`lower(${table.value})`),
+  ],
+);
+
+// One real QR code or printed spot for a link, reached at /q/<code>. Its labels are rows in
+// placement_values, using the workspace's tracking parameters. A link can have many.
+export const placements = pgTable(
+  "placements",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    linkId: uuid("link_id").notNull(),
+    code: text("code").notNull(),
+    name: text("name"),
+    // The platform tag this placement was made from by scripts/tags-to-parameters.ts, so visits
+    // to /r/<slug>/<tag> count for it too. Null for placements made in the app.
+    legacyTag: text("legacy_tag"),
+    // Inactive placements are hidden from new work, but their codes keep redirecting since they may be printed.
+    isActive: boolean("is_active").notNull().default(true),
+    // The bulk upload that made this placement, if any.
+    bulkJobId: uuid("bulk_job_id"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }),
+  },
+  (table) => [
+    foreignKey({
+      name: "placements_link_id_fkey",
+      columns: [table.linkId],
+      foreignColumns: [links.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "placements_bulk_job_id_fkey",
+      columns: [table.bulkJobId],
+      foreignColumns: [bulkJobs.id],
+    }).onDelete("set null"),
+    index("placements_bulk_job_id_idx").on(table.bulkJobId),
+    uniqueIndex("placements_code_key").on(table.code),
+    uniqueIndex("placements_link_legacy_tag_key").on(table.linkId, table.legacyTag),
+    check("placements_code_format", sql`${table.code} ~ '^[a-z0-9]{6,16}$'`),
+  ],
+);
+
+export const BULK_JOB_STATUSES = ["queued", "running", "done", "failed"] as const;
+
+// One CSV upload of placements for a link. The worker (scripts/worker.ts) creates the
+// placements and stores a zip of their QR codes here until expires_at.
+export const bulkJobs = pgTable(
+  "bulk_jobs",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    linkId: uuid("link_id").notNull(),
+    status: text("status", { enum: BULK_JOB_STATUSES }).notNull().default("queued"),
+    format: text("format", { enum: ["png", "svg"] }).notNull().default("png"),
+    // Checked rows: [{ name, values: ParameterValue[] }], so the worker does not re-read the CSV.
+    rows: jsonb("rows").$type<{ name: string | null; values: { parameterId: string; key: string; value: string; optionId: string | null }[] }[]>().notNull(),
+    total: integer("total").notNull(),
+    processed: integer("processed").notNull().default(0),
+    // The app's address when the upload was made, for the URLs in the QR codes.
+    baseUrl: text("base_url").notNull(),
+    error: text("error"),
+    zip: bytea("zip"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+    // The zip is removed after this; the placements stay.
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }),
+  },
+  (table) => [
+    foreignKey({
+      name: "bulk_jobs_link_id_fkey",
+      columns: [table.linkId],
+      foreignColumns: [links.id],
+    }).onDelete("cascade"),
+    index("bulk_jobs_link_id_idx").on(table.linkId, table.createdAt.desc()),
+    check("bulk_jobs_status_check", sql`${table.status} in ('queued', 'running', 'done', 'failed')`),
+    check("bulk_jobs_format_check", sql`${table.format} in ('png', 'svg')`),
+  ],
+);
+
+// A placement's value for one parameter. Parameters and options in use cannot be deleted (restrict).
+export const placementValues = pgTable(
+  "placement_values",
+  {
+    placementId: uuid("placement_id").notNull(),
+    parameterId: uuid("parameter_id").notNull(),
+    // Set for dropdown values; value then holds the option's code as it was chosen.
+    optionId: uuid("option_id"),
+    value: text("value").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "placement_values_pkey", columns: [table.placementId, table.parameterId] }),
+    foreignKey({
+      name: "placement_values_placement_id_fkey",
+      columns: [table.placementId],
+      foreignColumns: [placements.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "placement_values_parameter_id_fkey",
+      columns: [table.parameterId],
+      foreignColumns: [trackingParameters.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "placement_values_option_id_fkey",
+      columns: [table.optionId],
+      foreignColumns: [trackingParameterOptions.id],
+    }).onDelete("restrict"),
+    index("placement_values_parameter_value_idx").on(table.parameterId, table.value),
   ],
 );
 

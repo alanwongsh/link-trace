@@ -2,10 +2,25 @@
 
 import { useRef } from "react";
 
-// Opens a dialog with the QR code for a short link (or one of its tag links) and download buttons.
-export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: string }) {
+// Opens a dialog with the QR code for a short link (or one of its tag links or placements) and
+// download buttons. label names the tag or placement in the dialog.
+export function QrButton({
+  slug,
+  tag,
+  placement,
+  label,
+  url,
+}: {
+  slug: string;
+  tag?: string;
+  placement?: string;
+  label?: string;
+  url: string;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const base = `/stats/${slug}/qr?${tag ? `tag=${encodeURIComponent(tag)}&` : ""}`;
+  const query = placement ? `placement=${encodeURIComponent(placement)}&` : tag ? `tag=${encodeURIComponent(tag)}&` : "";
+  const base = `/stats/${slug}/qr?${query}`;
+  const name = label ?? tag;
 
   return (
     <>
@@ -26,7 +41,7 @@ export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: 
         <div className="grid gap-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="font-medium">QR code{tag ? ` · ${tag}` : ""}</p>
+              <p className="font-medium">QR code{name ? ` · ${name}` : ""}</p>
               <p className="truncate font-mono text-xs text-teal">{url}</p>
             </div>
             <button
@@ -45,7 +60,9 @@ export function QrButton({ slug, tag, url }: { slug: string; tag?: string; url: 
             loading="lazy"
             className="mx-auto block aspect-square w-full max-w-[min(100%,50dvh)] rounded-lg bg-white"
           />
-          <p className="text-xs text-muted">Scans count as visits{tag ? ` tagged ${tag}` : ""}.</p>
+          <p className="text-xs text-muted">
+            {placement ? "Scans count for this placement." : `Scans count as visits${tag ? ` tagged ${tag}` : ""}.`}
+          </p>
           <div className="grid grid-cols-2 gap-2">
             <a
               href={`${base}format=png&download=1`}

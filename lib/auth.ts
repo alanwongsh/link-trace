@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { userForSession, type SessionUser } from "@/lib/accounts";
+import { listWorkspaces, userForSession, type SessionUser } from "@/lib/accounts";
 import { PERMISSIONS, type Permission } from "@/lib/permissions";
 import { atLeast, type Role } from "@/lib/roles";
 import { SESSION_COOKIE } from "@/lib/session";
@@ -48,6 +48,17 @@ export function can(user: SessionUser, workspaceId: string, min: Role): boolean 
 
 export function allowed(user: SessionUser, workspaceId: string, permission: Permission): boolean {
   return can(user, workspaceId, PERMISSIONS[permission]);
+}
+
+// Workspaces where the user has a permission, by name. Org admins get every workspace.
+export async function workspacesWith(
+  user: SessionUser,
+  permission: Permission,
+): Promise<{ id: string; name: string }[]> {
+  const all = user.isOrgAdmin
+    ? (await listWorkspaces()).map((w) => ({ id: w.id, name: w.name }))
+    : user.memberships.map((m) => ({ id: m.workspaceId, name: m.workspaceName }));
+  return all.filter((w) => allowed(user, w.id, permission));
 }
 
 export function sessionCookieOptions(maxAge: number) {

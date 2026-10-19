@@ -15,6 +15,8 @@ const fullTriggerClass =
 const fullMenuClass =
   "absolute left-0 z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 shadow-lg";
 
+const SEARCH_LIMIT = 200;
+
 export type FilterOption = {
   value: string;
   label: string;
@@ -68,7 +70,21 @@ export function FilterSelect({
   hideEmptyOption = false,
   disabled = false,
   ariaLabel,
+  id,
+  name,
+  required = false,
+  searchable = false,
+  invalid = false,
 }: {
+  /** Id for the trigger button, so an outside <label htmlFor> can name it. */
+  id?: string;
+  /** Inside a form: submits the value under this name. */
+  name?: string;
+  /** With name: the form will not submit until a value is chosen. */
+  required?: boolean;
+  /** Shows a search box above the options, for long lists. */
+  searchable?: boolean;
+  invalid?: boolean;
   label?: string;
   /** Accessible name when there is no visible label. */
   ariaLabel?: string;
@@ -85,11 +101,18 @@ export function FilterSelect({
   hideEmptyOption?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const rootRef = useMenuDismiss(open, setOpen);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
-  const buttonId = useId();
+  const generatedId = useId();
+  const buttonId = id ?? generatedId;
   const selected = options.find((o) => o.value === value);
   const summary = selected?.label ?? placeholder;
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  // Long lists render only the first matches; searching narrows them down.
+  const shown = searchable ? matches.slice(0, SEARCH_LIMIT) : matches;
 
   return (
     <div
@@ -97,19 +120,38 @@ export function FilterSelect({
       ref={rootRef}
     >
       <FilterLabel id={buttonId} label={label} />
+      {name ? (
+        // Text, not hidden, so the browser checks required; it stays out of sight and out of tab order.
+        <input
+          type="text"
+          name={name}
+          value={value}
+          required={required}
+          onChange={() => {}}
+          onInvalid={() => buttonRef.current?.focus()}
+          tabIndex={-1}
+          aria-hidden
+          className="pointer-events-none absolute bottom-0 left-4 h-px w-px opacity-0"
+        />
+      ) : null}
       <button
         id={buttonId}
+        ref={buttonRef}
         type="button"
         aria-label={label ? undefined : ariaLabel}
         aria-expanded={open}
         aria-controls={listId}
+        aria-invalid={invalid || undefined}
         disabled={disabled}
         className={`${
           fullWidth
             ? "inline-flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm hover:border-slate-400"
             : triggerClass
-        } disabled:cursor-not-allowed disabled:opacity-60`}
-        onClick={() => setOpen((v) => !v)}
+        } ${invalid ? "border-warn" : ""} disabled:cursor-not-allowed disabled:opacity-60`}
+        onClick={() => {
+          setOpen((v) => !v);
+          setQuery("");
+        }}
       >
         <span className={`truncate ${value ? "" : "text-slate-500"}`}>
           {summary}
@@ -128,8 +170,38 @@ export function FilterSelect({
           }
           role="listbox"
         >
+          {searchable ? (
+            <div className="mb-2">
+              <input
+                type="search"
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  // Enter picks the only match instead of submitting the form.
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (matches.length === 1) {
+                      onChange(matches[0].value);
+                      setOpen(false);
+                    }
+                  }
+                }}
+                placeholder="Search"
+                aria-label={`Search ${label ?? ariaLabel ?? "options"}`}
+                className="h-8 w-full rounded-md border border-slate-300 px-2 text-sm outline-none focus:border-teal"
+              />
+              {matches.length > shown.length ? (
+                <p className="mt-1 px-1 text-xs text-muted">
+                  Showing {shown.length} of {matches.length}. Type to narrow down.
+                </p>
+              ) : matches.length === 0 ? (
+                <p className="mt-1 px-1 text-xs text-muted">No matches.</p>
+              ) : null}
+            </div>
+          ) : null}
           <ul className="max-h-60 space-y-0.5 overflow-auto">
-            {hideEmptyOption ? null : (
+            {hideEmptyOption || needle ? null : (
               <li>
                 <button
                   type="button"
@@ -149,10 +221,10 @@ export function FilterSelect({
                 </button>
               </li>
             )}
-            {options.map((o, i) => {
+            {shown.map((o, i) => {
               const active = o.value === value;
               const heading =
-                o.group && o.group !== options[i - 1]?.group ? (
+                o.group && o.group !== shown[i - 1]?.group ? (
                   <li
                     key={`group:${o.group}`}
                     role="presentation"

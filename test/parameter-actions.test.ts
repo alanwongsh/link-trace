@@ -177,6 +177,13 @@ describe("dropdown options", () => {
     ]);
   });
 
+  it("counts active options on the parameter list", async () => {
+    await actions.importOptions(empty, form({ parameter_id: parameterId, options: "A\nB\nC" }));
+    const [, b] = await options();
+    await actions.setOptionStatus(empty, form({ option_id: b.id, is_active: "false" }));
+    expect((await parameterByKey("store_code")).optionCount).toBe(2);
+  });
+
   it("enforces unique values in the database too", async () => {
     await actions.importOptions(empty, form({ parameter_id: parameterId, options: "KL001" }));
     await expect(

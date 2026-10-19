@@ -19,7 +19,7 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { addTags, createLink } = await import("@/lib/actions");
-const { listLinks, loadDetail } = await import("@/lib/data");
+const { listLinks, loadDashboard, loadDetail } = await import("@/lib/data");
 
 let workspaceId: string;
 let otherWorkspaceId: string;
@@ -128,6 +128,20 @@ describe("adding tags", () => {
   });
 });
 
+describe("admin workspace list", () => {
+  it("counts each workspace's links and members", async () => {
+    session.user = await createUser({ [workspaceId]: "editor" });
+    await createUser({ [workspaceId]: "viewer", [otherWorkspaceId]: "viewer" });
+    for (const slug of ["one", "two"]) {
+      await createLink({ error: "", slug: "" }, form({ workspace_id: workspaceId, url: "https://example.com", slug }));
+    }
+    const { listWorkspaces } = await import("@/lib/accounts");
+    const counts = Object.fromEntries((await listWorkspaces()).map((w) => [w.id, [w.linkCount, w.memberCount]]));
+    expect(counts[workspaceId]).toEqual([2, 2]);
+    expect(counts[otherWorkspaceId]).toEqual([0, 1]);
+  });
+});
+
 describe("stats", () => {
   it("counts clicks per tag, untagged clicks and bots", async () => {
     session.user = await createUser({ [workspaceId]: "editor" });
@@ -151,6 +165,29 @@ describe("stats", () => {
     expect(byTag.email).toMatchObject({ clicks: 2, visitors: 1 });
     expect(byTag.lark).toMatchObject({ clicks: 1, visitors: 1 });
     expect(data?.bot_clicks).toBe(1);
+
+    const dashboard = await loadDashboard({ workspaceIds: [workspaceId] });
+    expect(dashboard.ok && dashboard.data).toMatchObject({
+      clicks: 4,
+      visitors: 3,
+      clicks7d: 4,
+      clicksToday: 4,
+      botClicks: 1,
+      tags: [
+        { tag: "email", clicks: 2 },
+        { tag: "", clicks: 1 },
+        { tag: "lark", clicks: 1 },
+      ],
+      countries: [{ country: "Unknown", clicks: 4 }],
+    });
+    const daily = dashboard.ok ? dashboard.data.daily : [];
+    expect(daily).toHaveLength(30);
+    expect(daily.at(-1)?.clicks).toBe(4);
+    expect(daily.slice(0, -1).every((day) => day.clicks === 0)).toBe(true);
+    const otherDashboard = await loadDashboard({ workspaceIds: [otherWorkspaceId] });
+    expect(otherDashboard.ok && otherDashboard.data.clicks).toBe(0);
+    const mine = await loadDashboard({ workspaceIds: "all", createdBy: session.user!.id });
+    expect(mine.ok && mine.data.clicks).toBe(4);
 
     const listed = await listLinks({ workspaceIds: [workspaceId] });
     expect(listed.ok && listed.data.map((l) => l.slug)).toEqual(["stats"]);

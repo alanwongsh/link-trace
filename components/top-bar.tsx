@@ -14,8 +14,13 @@ export async function TopBar({ meta }: { meta?: string }) {
           {user && !user.mustChangePassword ? (
             <nav className="flex gap-4 text-sm text-muted">
               <a href="/" className="transition hover:text-ink">
-                Links
+                Dashboard
               </a>
+              {user.isOrgAdmin || user.memberships.length > 0 ? (
+                <a href="/parameters" className="transition hover:text-ink">
+                  Parameters
+                </a>
+              ) : null}
               {user.isOrgAdmin ? (
                 <a href="/admin/users" className="transition hover:text-ink">
                   Admin

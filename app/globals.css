@@ -4,7 +4,10 @@
   --color-paper: #f3efe6;
   --color-ink: #1c1916;
   --color-muted: #6e685e;
-  --color-line: #e3dacb;
+  /* Card and table borders. */
+  --color-line: #cbbda5;
+  /* Inputs and empty states: at least 3:1 against white, as form boundaries need. */
+  --color-line-strong: #a39275;
   --color-card: #fffdf8;
   --color-teal: #0f5f5a;
   --color-warn: #8f3d2b;
@@ -37,7 +40,7 @@ input[type="radio"] {
 .field {
   width: 100%;
   border-radius: 0.75rem;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   background: white;
   padding: 0.7rem 0.85rem;
   font-size: 0.95rem;
@@ -56,7 +59,7 @@ input[type="radio"] {
   align-items: center;
   gap: 0.4rem;
   border-radius: 0.75rem;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   background: white;
   padding: 0.45rem 0.55rem;
 }
@@ -97,4 +100,13 @@ input[type="radio"] {
 
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+/* A box that says there is nothing here yet. */
+.empty-state {
+  border-radius: 1rem;
+  border: 1.5px dashed var(--color-line-strong);
+  background: var(--color-card);
+  padding: 2rem 1.25rem;
+  color: var(--color-muted);
 }

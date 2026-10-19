@@ -34,7 +34,7 @@ export async function listParameters(workspaceId: string) {
       isActive: parameters.isActive,
       sortOrder: parameters.sortOrder,
       updatedAt: parameters.updatedAt,
-      optionCount: sql<number>`(select count(*)::int from ${options} where ${options.parameterId} = ${parameters.id} and ${options.isActive})`,
+      optionCount: sql<number>`(select count(*)::int from tracking_parameter_options o where o.parameter_id = tracking_parameters.id and o.is_active)`,
     })
     .from(parameters)
     .where(eq(parameters.workspaceId, workspaceId))
@@ -136,6 +136,34 @@ export async function parameterDefinitions(workspaceId: string): Promise<Paramet
   return rows.map((row) => ({
     ...row,
     options: optionRows.filter((o) => o.parameterId === row.id).map(({ parameterId: _, ...o }) => o),
+  }));
+}
+
+// Active parameters with their active options, in display order: what the placement form shows.
+export async function placementFields(workspaceId: string) {
+  const rows = await db()
+    .select({
+      id: parameters.id,
+      key: parameters.key,
+      name: parameters.name,
+      description: parameters.description,
+      fieldType: parameters.fieldType,
+      isRequired: parameters.isRequired,
+    })
+    .from(parameters)
+    .where(and(eq(parameters.workspaceId, workspaceId), eq(parameters.isActive, true)))
+    .orderBy(asc(parameters.sortOrder), asc(parameters.createdAt));
+  const dropdownIds = rows.filter((r) => r.fieldType === "dropdown").map((r) => r.id);
+  const optionRows = dropdownIds.length
+    ? await db()
+        .select({ parameterId: options.parameterId, value: options.value, label: options.label })
+        .from(options)
+        .where(and(inArray(options.parameterId, dropdownIds), eq(options.isActive, true)))
+        .orderBy(asc(options.sortOrder), asc(options.createdAt))
+    : [];
+  return rows.map(({ id, ...row }) => ({
+    ...row,
+    options: optionRows.filter((o) => o.parameterId === id).map(({ parameterId: _, ...o }) => o),
   }));
 }
 

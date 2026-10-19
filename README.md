@@ -76,6 +76,28 @@ npm run dev
 
 Fill in `DATABASE_URL` and `ADMIN_PASSWORD`.
 
+## Background jobs
+
+```bash
+npm run worker
+```
+
+Keep one worker running next to the app. It runs every job in `lib/jobs/catalog.ts`: bulk placement uploads (placements plus a zip of QR codes and `placements.csv`, kept 7 days), hourly removal of expired zips, and queued clicks when `CLICK_INGEST=queue`. Uploads wait as "Waiting…" until a worker picks them up. Several workers can run at once.
+
+Jobs use pg-boss, which keeps its queue in the same Postgres (schema `pgboss`, created on first start). The app adds jobs with `enqueue(name, data)` from `lib/queue.ts`. To add a job: an entry in `lib/jobs/catalog.ts` and a handler in `lib/jobs/handlers.ts`. To move to another queue such as BullMQ, implement `QueueDriver` (`lib/jobs/driver.ts`) and select it with `QUEUE_DRIVER`.
+
+Serverless hosting (Vercel) cannot run the worker; run it on a server or container. Through Supabase, give the worker the session pooler (port 5432).
+
+## Turning tags into placements
+
+```bash
+npm run tags:migrate                    # preview only, changes nothing
+npm run tags:migrate -- --apply         # make the changes
+npm run tags:migrate -- --undo --apply  # remove what it made
+```
+
+For each workspace with tagged links it adds a `platform` dropdown parameter (one option per tag) and one placement per link and tag, and links past tag visits to those placements. Tags, `/r/<slug>/<tag>` addresses and their stats are not changed. Add `--workspace <id>` for one workspace, or `--key` and `--name` for another parameter. It can be run again; anything already made is skipped.
+
 ## Tests
 
 ```bash

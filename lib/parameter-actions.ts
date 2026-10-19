@@ -52,7 +52,8 @@ function direction(value: FormDataEntryValue | null): "up" | "down" | null {
 }
 
 function refresh(workspaceId: string): void {
-  revalidatePath(`/workspaces/${workspaceId}/parameters`);
+  // "layout" also refreshes each parameter's own page.
+  revalidatePath(`/workspaces/${workspaceId}/parameters`, "layout");
 }
 
 // Loads a parameter by id and checks the user may manage its workspace. Ids from the form are

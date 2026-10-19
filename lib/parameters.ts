@@ -162,3 +162,12 @@ export function validateParameterValues(
 
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, values };
 }
+
+// Values from a form whose parameter fields are named "param:<key>".
+export function submittedParameterValues(formData: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [name, value] of formData.entries()) {
+    if (name.startsWith("param:") && typeof value === "string") values[name.slice("param:".length)] = value;
+  }
+  return values;
+}

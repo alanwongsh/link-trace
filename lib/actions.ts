@@ -16,6 +16,7 @@ import {
   updateUser,
 } from "@/lib/accounts";
 import {
+  allowed,
   can,
   currentSessionToken,
   requireUser,
@@ -24,6 +25,9 @@ import {
 } from "@/lib/auth";
 import { deleteLink, findDestination, insertLink, moveLink, saveTags, saveTarget } from "@/lib/data";
 import { hashPassword, passwordProblem, verifyAgainstDummy, verifyPassword } from "@/lib/password";
+import { parameterDefinitions } from "@/lib/parameter-data";
+import { submittedParameterValues, validateParameterValues, type ParameterValue } from "@/lib/parameters";
+import { insertPlacement, linkHasPlacements } from "@/lib/placement-data";
 import { SESSION_COOKIE, safeEqual } from "@/lib/session";
 import {
   createSlug,
@@ -195,6 +199,21 @@ export async function createLink(
     };
   }
 
+  // An optional first placement. Its values are checked before the link is created, so a
+  // rejected value never leaves a half-made link.
+  const withPlacement = formData.get("add_placement") === "on";
+  const placementName = String(formData.get("placement_name") ?? "").trim();
+  let placementValues: ParameterValue[] = [];
+  if (withPlacement) {
+    if (!allowed(user, workspaceId, "placements.manage")) {
+      return { error: "You cannot add placements in that workspace.", slug: "" };
+    }
+    if (placementName.length > 80) return { error: "Keep the placement name under 80 characters.", slug: "" };
+    const checked = validateParameterValues(await parameterDefinitions(workspaceId), submittedParameterValues(formData));
+    if (!checked.ok) return { error: "Check the highlighted placement fields.", slug: "", fieldErrors: checked.errors };
+    placementValues = checked.values;
+  }
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const created = await insertLink({
       slug,
@@ -216,7 +235,28 @@ export async function createLink(
         details: { kind, url, htmlBytes: html?.length ?? null, tags: parsedTags.tags },
       });
       revalidatePath("/");
-      return { error: "", slug };
+      if (!withPlacement) return { error: "", slug };
+
+      try {
+        const placement = await insertPlacement({
+          linkId: created.data.id,
+          name: placementName || null,
+          values: placementValues,
+          createdBy: user.id,
+        });
+        await audit({
+          actor: actor(user),
+          action: "placement.create",
+          workspaceId,
+          targetType: "placement",
+          targetId: placement.code,
+          details: { slug, name: placementName || null, values: Object.fromEntries(placementValues.map((v) => [v.key, v.value])) },
+        });
+        return { error: "", slug, placementCode: placement.code };
+      } catch (error) {
+        console.error("Could not create the first placement:", error instanceof Error ? error.message : error);
+        return { error: "The link was created, but its placement was not. Add it on the link's page.", slug };
+      }
     }
     if (created.message !== "That slug is already in use." || requested.trim()) {
       return { error: created.message, slug: "" };
@@ -322,6 +362,10 @@ export async function moveLinkToWorkspace(_prev: FormState, formData: FormData):
   if (workspaceId === link.workspaceId) return { error: "The link is already in that workspace.", ok: "" };
   if (!can(user, workspaceId, "owner")) {
     return { error: "You need the owner role in the workspace you move it to.", ok: "" };
+  }
+  // Placement labels use this workspace's parameters, which the other workspace does not have.
+  if (await linkHasPlacements(link.id)) {
+    return { error: "This link has placements labelled with this workspace's parameters, so it cannot be moved.", ok: "" };
   }
 
   const moved = await moveLink(slug, workspaceId, user.id);

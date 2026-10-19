@@ -16,7 +16,7 @@ Phase 1 (Oct 2026 – Apr 2027) tags every link and QR code with the labels each
 | Parameter option | A predefined value of a dropdown parameter, such as one store code | `tracking_parameter_options` (new) |
 | Placement | One real QR code or printed link: short code `/q/<code>` pointing at a link, with its parameter values | `placements`, `placement_values` (new) |
 
-Tags and parameters stay separate. Existing tags are never converted into parameters.
+Tags and parameters stay separate. Tags are never changed or removed. The optional `npm run tags:migrate` script adds a `platform` dropdown parameter and one placement per link and tag alongside them (preview by default, `--apply` to run, `--undo` to remove what it made).
 
 ## A. Requests to other teams (start now)
 
@@ -36,12 +36,12 @@ Sizes: S = 1–2 days, M = 3–5 days, L = about a week.
 |---|---|---|---|---|
 | 1 | Save the scan after the redirect is sent (`after()`), so a slow database never delays the visitor | S | – | Done |
 | 0 | **Regression baseline:** add a test runner and tests for today's behaviour: create link with tags, `/r/<slug>` and `/r/<slug>/<tag>` redirect and record clicks, unknown tag returns 404, HEAD and prefetch not counted, workspace access by role. Run before every later task (`npm test`) | S–M | – | Done |
-| 2a | **Parameter definitions (backend):** `tracking_parameters` and `tracking_parameter_options` tables per workspace; key unique per workspace regardless of case and fixed after creation; archive instead of delete once used; server-side validation of values; audit log entries. Migration `0007_tracking_parameters` | M | 0 | Done (migration not yet applied to Supabase) |
-| 2b | **Parameter management page:** workspace members list, search, create, edit, activate or deactivate parameters, set required and order; for dropdowns add, edit, deactivate, reorder options and import options by paste or CSV | M | 2a | Next |
-| 3 | **Placements:** `placements` table (short code, link, workspace, status) and `placement_values` (placement, parameter, value or option); short `/q/<code>` route; `placement_id` on clicks; short code unique with retry on collision. Existing `/r/<slug>/<tag>` links keep working | M | 2a | |
-| 4 | **Placement form:** on a link, create placements with fields rendered from the workspace's active parameters (in order, required enforced), review before saving, list placements, QR code per placement. A workspace with no parameters can still create a placement | M | 2b, 3 | |
-| 5 | **Bulk QR:** upload a CSV whose columns are parameter keys, preview the row count and errors, create only the rows given (no automatic combinations), download a zip of labelled QR codes plus a CSV mapping each code to its URL and values | M | 4 | |
-| 6 | **Routing by device:** iOS, Android and fallback URLs per link, set by whoever creates the link; store OS and device type on each scan | M | 3 | |
+| 2a | **Parameter definitions (backend):** `tracking_parameters` and `tracking_parameter_options` tables per workspace; key unique per workspace regardless of case and fixed after creation; archive instead of delete once used; server-side validation of values; audit log entries. Migration `0007_tracking_parameters` | M | 0 | Done |
+| 2b | **Parameter management page:** workspace members list, search, create, edit, activate or deactivate parameters, set required and order; for dropdowns add, edit, deactivate, reorder options and import options by paste or CSV. At `/parameters` and `/workspaces/<id>/parameters` | M | 2a | Done |
+| 3 | **Placements:** `placements` table (short code, link, name, status) and `placement_values` (placement, parameter, value or option); short `/q/<code>` route; `placement_id` on clicks; short code unique with retry on collision. Existing `/r/<slug>/<tag>` links keep working | M | 2a | Done |
+| 4 | **Placement form:** on a link, create placements with fields rendered from the workspace's active parameters (in order, required enforced), review before saving, list placements, QR code per placement. A workspace with no parameters can still create a placement | M | 2b, 3 | Done |
+| 5 | **Bulk QR:** upload a CSV whose columns are parameter keys, preview the row count and errors, create only the rows given (no automatic combinations), download a zip of labelled QR codes plus a CSV mapping each code to its URL and values | M | 4 | Done |
+| 6 | **Routing by device:** iOS, Android and fallback URLs per link, set by whoever creates the link; store OS and device type on each scan | M | 3 | Next |
 | 7 | **Reports:** filter and group by any parameter, tag and device; label unique visitors as estimated; CSV export. Renamed parameters show their current name; archived ones still report | L | 3, 6 | |
 | 8 | **Bot and data-centre filtering:** cloud IP ranges with a refresh script (excluding iCloud Private Relay), burst flag, internal-traffic exclusion; flagged scans shown separately, never deleted | M | 3 | |
 | 9 | **PDPA changes:** IP masking or retention job, privacy notice link | S–M | A1 feedback | |
@@ -64,7 +64,7 @@ LinkTrace is already in use for tracking button clicks. Every task must follow t
 1. `/r/<slug>` and `/r/<slug>/<tag>` keep working. New QR codes use `/q/<code>`.
 2. Schema changes only add: new tables, and new columns that are nullable or have defaults. No renames, drops or rewrites of existing data.
 3. A link without device URLs, parameters or placements behaves exactly as today. Creating a link never requires a parameter unless a workspace marks one as required, and required parameters apply to placements only.
-4. Tags keep their current meaning and storage. They are not converted into parameters.
+4. Tags keep their current meaning and storage. Nothing changes or removes them; the tag script only adds placements next to them.
 5. A parameter or option that has been used is archived, never deleted. Its key never changes, so old scans still report correctly.
 6. Bot and data-centre filtering writes to a new flag column; `is_bot` and historical counts stay unchanged.
 7. Any change to stored data (such as IP masking for PDPA) is applied only after the DPO decides, and current users are told first.
@@ -82,7 +82,15 @@ None at the moment.
 | Parameters are defined per workspace, not hard-coded as store, channel and campaign | Different teams need different labels; no code or column changes per team |
 | No built-in store, channel or campaign field; each workspace defines the parameters it needs (a store list is just a dropdown parameter whose options are imported from CSV) | Teams manage their own labels; no stores module to build or maintain |
 | Parameter values are stored on placements only, not on the link | One link can have many QR codes with different labels; the create-link form stays as it is today |
-| Tags stay separate from parameters | Tags are already in use with their own URLs and reports; merging them would change the meaning of existing data |
+| Tags stay separate from parameters; converting them is an optional, reversible script | Tags are already in use with their own URLs and reports; the script adds placements without changing what exists |
+| A placement's labels are fixed once created; deactivate it and create a new one instead | Changing labels would rewrite the meaning of its past scans |
+| Inactive placements keep redirecting and counting scans | Their QR codes may already be printed |
+| A link with placements cannot be moved to another workspace | Its labels use the original workspace's parameters |
+| Placements are created by editors and owners (`placements.manage`) | Same as creating links and adding tags today |
+| The create-link form has no tag field; it offers an optional first placement instead. Tags can still be added on each link's page | New QR codes and links use placements; existing tag links, addresses and stats are unchanged |
+| Background jobs run on pg-boss in the same Postgres, behind one job catalog (`lib/jobs/catalog.ts`) and a driver interface | No Redis to run now; moving to BullMQ later means one new driver, not changes across the app |
+| Bulk uploads keep their zip for 7 days, then only the placements remain | Zips are stored in the database until file storage (S3) is set up |
+| Clicks are saved directly unless `CLICK_INGEST=queue` | Queuing a click on pg-boss is itself a database write; it pays off once the queue moves to Redis |
 | A parameter's key and field type are fixed once created; its name, description and required setting can change. An option's value (code) is fixed; its label can change. To fix a wrong code, deactivate it and add a new one | Renaming must not break existing placements or reports |
 | Parameters and options are deactivated, never deleted, from the app | Keeps history intact without checking whether something was used |
 | Limits: 30 parameters per workspace, 5,000 options per parameter, 2,000 options per import | Covers a full store list while keeping pages and imports fast |

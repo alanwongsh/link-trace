@@ -2,7 +2,7 @@ import "server-only";
 
 import { aliasedTable, and, desc, eq, getViewSelectedFields, inArray, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { clicks, linkSummaries, links, users, workspaces } from "@/lib/db/schema";
+import { clicks, linkSummaries, links, placements, users, workspaces } from "@/lib/db/schema";
 import type { ClickDraft } from "@/lib/track";
 import {
   schemaProblem,
@@ -88,13 +88,13 @@ export async function insertLink(input: {
   tags: string[];
   workspaceId: string;
   createdBy: string;
-}): Promise<Result<{ slug: string }>> {
+}): Promise<Result<{ slug: string; id: string }>> {
   const config = getDb();
   if (!config.ok) return unavailable(config);
 
   try {
-    await config.db.insert(links).values(input);
-    return { ok: true, data: { slug: input.slug } };
+    const [row] = await config.db.insert(links).values(input).returning({ id: links.id });
+    return { ok: true, data: { slug: input.slug, id: row.id } };
   } catch (error) {
     if (pgError(error).code === "23505") {
       return { ok: false, message: "That slug is already in use." };
@@ -235,10 +235,13 @@ export async function linkOwnership(slug: string): Promise<{
   return row ?? null;
 }
 
+// placementId: set for /q/<code> visits. For a tag visit with no placement given, the
+// placement made from that tag (if any) is looked up in the same insert.
 export async function insertClick(
   linkId: string,
   click: ClickDraft,
   tag: string | null,
+  placementId: string | null = null,
 ): Promise<void> {
   const config = getDb();
   if (!config.ok) return;
@@ -255,6 +258,11 @@ export async function insertClick(
       city: click.city,
       isBot: click.isBot,
       tag,
+      placementId:
+        placementId ??
+        (tag
+          ? sql`(select ${placements.id} from ${placements} where ${placements.linkId} = ${linkId} and ${placements.legacyTag} = ${tag})`
+          : null),
     });
   } catch (error) {
     console.error("Failed to record click:", pgError(error).message);
@@ -294,4 +302,89 @@ function normalizeDetail(detail: LinkDetail): LinkDetail {
       tag: click.tag ?? null,
     })),
   };
+}
+
+export type DashboardSummary = {
+  clicks: number;
+  visitors: number;
+  clicks7d: number;
+  clicksToday: number;
+  botClicks: number;
+  daily: { day: string; clicks: number }[];
+  tags: { tag: string; clicks: number }[];
+  countries: { country: string; clicks: number }[];
+};
+
+// Totals across every link the filter covers. Same rules as link_detail(): bots are left out
+// of everything except botClicks, and days are grouped in UTC.
+export async function loadDashboard(filter: {
+  workspaceIds: string[] | "all";
+  createdBy?: string;
+  days?: number;
+}): Promise<Result<DashboardSummary>> {
+  const config = getDb();
+  if (!config.ok) return unavailable(config);
+  const days = filter.days ?? 30;
+  const empty: DashboardSummary = {
+    clicks: 0, visitors: 0, clicks7d: 0, clicksToday: 0, botClicks: 0, daily: [], tags: [], countries: [],
+  };
+  if (filter.workspaceIds !== "all" && filter.workspaceIds.length === 0) return { ok: true, data: empty };
+
+  const conditions: SQL[] = [];
+  if (filter.workspaceIds !== "all") conditions.push(inArray(links.workspaceId, filter.workspaceIds));
+  if (filter.createdBy) conditions.push(eq(links.createdBy, filter.createdBy));
+  const where = conditions.length ? sql`where ${and(...conditions)}` : sql``;
+  const scoped = sql`select ${clicks.id} as id, ${clicks.visitorId} as visitor_id, ${clicks.tag} as tag,
+    ${clicks.country} as country, ${clicks.isBot} as is_bot, ${clicks.clickedAt} as clicked_at
+    from ${clicks} inner join ${links} on ${links.id} = ${clicks.linkId} ${where}`;
+
+  try {
+    const [totals, daily, tags, countries] = await Promise.all([
+      config.db.execute<{ clicks: number; visitors: number; clicks_7d: number; clicks_today: number; bot_clicks: number }>(sql`
+        with s as (${scoped})
+        select
+          count(*) filter (where not is_bot)::int as clicks,
+          count(distinct visitor_id) filter (where not is_bot)::int as visitors,
+          count(*) filter (where not is_bot and clicked_at >= now() - interval '7 days')::int as clicks_7d,
+          count(*) filter (where not is_bot and (clicked_at at time zone 'utc') >= date_trunc('day', now() at time zone 'utc'))::int as clicks_today,
+          count(*) filter (where is_bot)::int as bot_clicks
+        from s`),
+      config.db.execute<{ day: string; clicks: number }>(sql`
+        with s as (${scoped}), h as (select clicked_at from s where not is_bot
+          and clicked_at >= (date_trunc('day', now() at time zone 'utc') - make_interval(days => ${days - 1})) at time zone 'utc')
+        select to_char(series.day, 'YYYY-MM-DD') as day, count(h.clicked_at)::int as clicks
+        from generate_series(
+          date_trunc('day', now() at time zone 'utc') - make_interval(days => ${days - 1}),
+          date_trunc('day', now() at time zone 'utc'),
+          interval '1 day'
+        ) as series(day)
+        left join h on (h.clicked_at at time zone 'utc') >= series.day
+          and (h.clicked_at at time zone 'utc') < series.day + interval '1 day'
+        group by series.day order by series.day`),
+      config.db.execute<{ tag: string; clicks: number }>(sql`
+        with s as (${scoped})
+        select coalesce(tag, '') as tag, count(*)::int as clicks from s where not is_bot
+        group by 1 order by 2 desc, 1 limit 8`),
+      config.db.execute<{ country: string; clicks: number }>(sql`
+        with s as (${scoped})
+        select coalesce(country, 'Unknown') as country, count(*)::int as clicks from s where not is_bot
+        group by 1 order by 2 desc, 1 limit 8`),
+    ]);
+    const t = totals[0];
+    return {
+      ok: true,
+      data: {
+        clicks: t?.clicks ?? 0,
+        visitors: t?.visitors ?? 0,
+        clicks7d: t?.clicks_7d ?? 0,
+        clicksToday: t?.clicks_today ?? 0,
+        botClicks: t?.bot_clicks ?? 0,
+        daily: [...daily],
+        tags: [...tags],
+        countries: [...countries],
+      },
+    };
+  } catch (error) {
+    return fail(error, "Could not load the dashboard.");
+  }
 }

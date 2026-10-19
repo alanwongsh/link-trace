@@ -3,9 +3,13 @@ import "server-only";
 import { after, NextResponse, type NextRequest } from "next/server";
 import { findDestination, insertClick } from "@/lib/data";
 import { hostedPageResponse } from "@/lib/hosted-page";
+import { enqueue } from "@/lib/queue";
+import { uuidv7 } from "@/lib/uuid7";
 import { VISITOR_COOKIE } from "@/lib/session";
+import { findPlacementDestination, type PlacementDestination } from "@/lib/placement-data";
 import { normalizeTag } from "@/lib/slug";
-import { describeClick, isPrefetch } from "@/lib/track";
+import { describeClick, isPrefetch, type ClickDraft } from "@/lib/track";
+import type { LinkKind } from "@/lib/types";
 
 const YEAR = 60 * 60 * 24 * 365;
 
@@ -30,15 +34,47 @@ export async function traceAndRedirect(
     return notFoundResponse("This platform tag is not on the link.");
   }
 
+  const linkId = found.data.id;
+  return respond(request, found.data, (click, at) => saveClick(linkId, click, tag, null, at));
+}
+
+// /q/<code>: a placement's QR code or printed address.
+export async function traceAndRedirectPlacement(request: NextRequest, rawCode: string): Promise<NextResponse> {
+  const code = rawCode.trim().toLowerCase();
+  if (!/^[a-z0-9]{6,16}$/.test(code)) return notFoundResponse();
+
+  let found: PlacementDestination | null;
+  try {
+    found = await findPlacementDestination(code);
+  } catch (error) {
+    console.error("Could not load the placement:", error instanceof Error ? error.message : error);
+    return new NextResponse("This link could not be loaded. Try again shortly.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  if (!found) return notFoundResponse();
+
+  const { linkId, placementId, legacyTag } = found;
+  // A placement made from a tag also counts under that tag, so platform stats stay complete.
+  return respond(request, found, (click, at) => saveClick(linkId, click, legacyTag, placementId, at));
+}
+
+function respond(
+  request: NextRequest,
+  target: { kind: LinkKind; url: string | null; html: string | null },
+  record: (click: ClickDraft, at: string) => Promise<void>,
+): NextResponse {
   const click = describeClick(request);
   // Next.js answers HEAD with the GET handler; scanners use HEAD to check links without opening them.
   // The click is saved after the response is sent, so a slow database never delays the visitor.
   if (request.method !== "HEAD" && !isPrefetch(request)) {
-    const linkId = found.data.id;
-    after(() => insertClick(linkId, click, tag));
+    // The time is taken now, so a queued click keeps the moment of the visit.
+    const at = new Date().toISOString();
+    after(() => record(click, at));
   }
 
-  const { kind, url, html } = found.data;
+  const { kind, url, html } = target;
   let response: NextResponse;
   if (kind === "page" && html !== null) {
     response = hostedPageResponse(html);
@@ -58,6 +94,41 @@ export async function traceAndRedirect(
     });
   }
   return response;
+}
+
+// CLICK_INGEST=queue hands clicks to the worker (record-click job), which saves them in batches;
+// if the queue cannot take one, it is saved directly so no visit is lost. Anything else saves
+// directly, as before.
+async function saveClick(
+  linkId: string,
+  click: ClickDraft,
+  tag: string | null,
+  placementId: string | null,
+  at: string,
+): Promise<void> {
+  if (process.env.CLICK_INGEST === "queue") {
+    try {
+      await enqueue("record-click", {
+        id: uuidv7(Date.parse(at)),
+        linkId,
+        visitorId: click.visitorId,
+        ip: click.ip,
+        userAgent: click.userAgent,
+        referrer: click.referrer,
+        country: click.country,
+        region: click.region,
+        city: click.city,
+        isBot: click.isBot,
+        tag,
+        placementId,
+        clickedAt: at,
+      });
+      return;
+    } catch (error) {
+      console.error("Could not queue a click; saving it directly:", error instanceof Error ? error.message : error);
+    }
+  }
+  await insertClick(linkId, click, tag, placementId);
 }
 
 function notFoundResponse(message = "This link is not in the log."): NextResponse {

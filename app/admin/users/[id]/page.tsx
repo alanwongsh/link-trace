@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { FormSelect } from "@/components/form-select";
 import { ActionForm } from "@/components/action-form";
 import { AdminNav } from "@/components/admin-nav";
 import { LocalTime } from "@/components/local-time";
@@ -93,12 +94,13 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             <ActionForm action={addMember} submit="Add to workspace" pending="Adding…" className="mt-4 grid gap-3">
               <input type="hidden" name="user_id" value={user.id} />
               <div className="flex flex-wrap gap-2">
-                <select name="workspace_id" required className="field w-auto min-w-48" defaultValue="">
-                  <option value="" disabled>Choose a workspace</option>
-                  {joinable.map((w) => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
+                <FormSelect
+                  name="workspace_id"
+                  required
+                  options={joinable.map((w) => ({ value: w.id, label: w.name }))}
+                  placeholder="Choose a workspace"
+                  ariaLabel="Workspace"
+                />
                 <RoleSelect defaultValue="editor" />
               </div>
             </ActionForm>

@@ -64,6 +64,10 @@ export type LinkDetail = {
 export type CreateState = {
   error: string;
   slug: string;
+  // Set when a first placement was created with the link.
+  placementCode?: string;
+  // Per parameter key, when the first placement's values were rejected.
+  fieldErrors?: Record<string, string>;
 };
 
 // For simple forms: one error or one success message.
@@ -80,6 +84,27 @@ export type EditState = {
 export type TagState = {
   error: string;
   added: string;
+};
+
+export type PlacementState = {
+  error: string;
+  // Per parameter key, when values were rejected.
+  fieldErrors: Record<string, string>;
+  // The new placement's code after a successful create.
+  code: string;
+};
+
+export type BulkState = {
+  error: string;
+  // After a check: rows ready to create, and the problems found (first ones only).
+  checked: boolean;
+  ready: number;
+  problems: { line: number; message: string }[];
+  problemCount: number;
+  // Up to five rows as "label: value" lists, to confirm the columns were read correctly.
+  sample: string[][];
+  // Set once the upload is queued.
+  jobId: string;
 };
 
 export type Failure = {

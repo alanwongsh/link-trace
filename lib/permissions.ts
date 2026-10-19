@@ -5,6 +5,8 @@ import type { Role } from "@/lib/roles";
 export const PERMISSIONS = {
   // Every member for now; to be narrowed when role-based control arrives.
   "parameters.manage": "viewer",
+  // Same as creating links and adding tags today.
+  "placements.manage": "editor",
 } as const satisfies Record<string, Role>;
 
 export type Permission = keyof typeof PERMISSIONS;

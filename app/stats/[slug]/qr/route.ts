@@ -3,9 +3,11 @@ import QRCode from "qrcode";
 import { can, getCurrentUser } from "@/lib/auth";
 import { findDestination } from "@/lib/data";
 import { appOrigin } from "@/lib/origin";
+import { findPlacementDestination } from "@/lib/placement-data";
 import { normalizeTag } from "@/lib/slug";
 
-// QR code for /r/slug, or /r/slug/tag with ?tag=. ?format=png|svg, ?download=1 to save as a file.
+// QR code for /r/slug, /r/slug/tag with ?tag=, or a placement's /q/code with ?placement=.
+// ?format=png|svg, ?download=1 to save as a file.
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> },
@@ -28,9 +30,19 @@ export async function GET(
     return new NextResponse("This platform tag is not on the link.", { status: 404 });
   }
 
-  const shortUrl = `${await appOrigin()}/r/${slug}${tag ? `/${tag}` : ""}`;
+  // ?placement=<code> encodes that placement's /q/ address; it must belong to this link.
+  const code = params.get("placement")?.toLowerCase() ?? null;
+  if (code) {
+    const placement = /^[a-z0-9]{6,16}$/.test(code) ? await findPlacementDestination(code) : null;
+    if (!placement || placement.linkId !== found.data.id) {
+      return new NextResponse("Placement not found.", { status: 404 });
+    }
+  }
+
+  const origin = await appOrigin();
+  const shortUrl = code ? `${origin}/q/${code}` : `${origin}/r/${slug}${tag ? `/${tag}` : ""}`;
   const options = { errorCorrectionLevel: "M", margin: 2, color: { dark: "#000000", light: "#ffffff" } } as const;
-  const name = `${slug}${tag ? `-${tag}` : ""}-qr`;
+  const name = `${slug}${code ? `-${code}` : tag ? `-${tag}` : ""}-qr`;
   const download = params.get("download") === "1";
 
   if (params.get("format") === "png") {

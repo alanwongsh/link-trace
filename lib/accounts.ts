@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/lib/db";
-import { auditLog, links, memberships, sessions, users, workspaces } from "@/lib/db/schema";
+import { auditLog, memberships, sessions, users, workspaces } from "@/lib/db/schema";
 import type { Role } from "@/lib/roles";
 
 // Account queries throw on database errors; callers in actions turn them into messages.
@@ -113,7 +113,7 @@ export async function listUsers() {
       mustChangePassword: users.mustChangePassword,
       lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt,
-      workspaceCount: sql<number>`(select count(*)::int from ${memberships} where ${memberships.userId} = ${users.id})`,
+      workspaceCount: sql<number>`(select count(*)::int from memberships m where m.user_id = users.id)`,
     })
     .from(users)
     .orderBy(asc(users.name));
@@ -167,8 +167,8 @@ export async function listWorkspaces() {
       id: workspaces.id,
       name: workspaces.name,
       createdAt: workspaces.createdAt,
-      memberCount: sql<number>`(select count(*)::int from ${memberships} where ${memberships.workspaceId} = ${workspaces.id})`,
-      linkCount: sql<number>`(select count(*)::int from ${links} where ${links.workspaceId} = ${workspaces.id})`,
+      memberCount: sql<number>`(select count(*)::int from memberships m where m.workspace_id = workspaces.id)`,
+      linkCount: sql<number>`(select count(*)::int from links l where l.workspace_id = workspaces.id)`,
     })
     .from(workspaces)
     .orderBy(asc(workspaces.name));

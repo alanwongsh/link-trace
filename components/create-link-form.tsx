@@ -2,12 +2,14 @@
 
 import { useActionState, useState } from "react";
 import { createLink } from "@/lib/actions";
-import { TagField } from "@/components/tag-field";
+import { FilterSelect } from "@/components/filter-select";
+import { ParameterInputs, type PlacementField } from "@/components/parameter-inputs";
 import { TargetFields } from "@/components/target-fields";
 import type { Role } from "@/lib/roles";
 import type { CreateState, LinkKind } from "@/lib/types";
 
-export type WritableWorkspace = { id: string; name: string; role: Role };
+// fields: the workspace's active tracking parameters, for the optional first placement.
+export type WritableWorkspace = { id: string; name: string; role: Role; canPlace: boolean; fields: PlacementField[] };
 
 const initial: CreateState = { error: "", slug: "" };
 
@@ -52,7 +54,10 @@ function LinkFormFields({
   onWorkspaceChange: (id: string) => void;
 }) {
   const [kind, setKind] = useState<LinkKind>("redirect");
-  const role = workspaces.find((w) => w.id === workspaceId)?.role;
+  const workspace = workspaces.find((w) => w.id === workspaceId);
+  const role = workspace?.role;
+  // Reopens after a rejected placement value so the error shows.
+  const [addPlacement, setAddPlacement] = useState(Boolean(state.fieldErrors && Object.keys(state.fieldErrors).length));
 
   return (
     <form
@@ -64,19 +69,18 @@ function LinkFormFields({
           <label htmlFor="workspace_id" className="text-sm font-medium">
             Workspace
           </label>
-          <select
+          <FilterSelect
             id="workspace_id"
             name="workspace_id"
+            required
             value={workspaceId}
-            onChange={(event) => onWorkspaceChange(event.target.value)}
-            className="field"
-          >
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
+            onChange={onWorkspaceChange}
+            options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+            placeholder="Choose a workspace"
+            hideEmptyOption
+            searchable={workspaces.length > 10}
+            fullWidth
+          />
         </div>
       ) : (
         <input type="hidden" name="workspace_id" value={workspaceId} />
@@ -96,12 +100,43 @@ function LinkFormFields({
           <input id="slug" name="slug" type="text" maxLength={32} placeholder="auto" className="field" spellCheck={false} />
         </div>
       </div>
-      <TagField
-        id="tags"
-        label="Platform tags"
-        placeholder="instagram"
-        hint="Press Enter or Add after each platform. Each tag gets its own address, such as /r/slug/instagram."
-      />
+      {workspace?.canPlace ? (
+        <fieldset className="grid gap-3 rounded-xl border border-line bg-paper/60 p-4">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              name="add_placement"
+              checked={addPlacement}
+              onChange={(event) => setAddPlacement(event.target.checked)}
+            />
+            Add a placement now <span className="font-normal text-muted">optional</span>
+          </label>
+          <p className="-mt-1 text-sm text-muted">
+            A placement is one QR code or printed spot with its own address and labels. You can add more on the
+            link&apos;s page.
+          </p>
+          {addPlacement ? (
+            <>
+              <div className="grid gap-2">
+                <label htmlFor="placement_name" className="text-sm font-medium">
+                  Placement name <span className="font-normal text-muted">optional, such as “Entrance poster”</span>
+                </label>
+                <input id="placement_name" name="placement_name" maxLength={80} className="field" />
+              </div>
+              {workspace.fields.length > 0 ? (
+                <ParameterInputs fields={workspace.fields} errors={state.fieldErrors ?? {}} idPrefix="new-param" />
+              ) : (
+                <p className="text-sm text-muted">
+                  {workspace.name} has no tracking parameters yet.{" "}
+                  <a href={`/workspaces/${workspace.id}/parameters`} className="text-teal hover:underline">
+                    Add parameters
+                  </a>
+                </p>
+              )}
+            </>
+          ) : null}
+        </fieldset>
+      ) : null}
       {state.error ? (
         <p className="text-sm text-warn" role="alert">
           {state.error}
@@ -110,6 +145,14 @@ function LinkFormFields({
       {state.slug ? (
         <p className="text-sm text-teal">
           Created <span className="font-mono">/r/{state.slug}</span>
+          {state.placementCode ? (
+            <>
+              {" "}with placement <span className="font-mono">/q/{state.placementCode}</span>.{" "}
+              <a href={`/stats/${state.slug}#placements`} className="underline">
+                Open its QR code
+              </a>
+            </>
+          ) : null}
         </p>
       ) : null}
       <div>

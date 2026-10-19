@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { FormSelect } from "@/components/form-select";
+import { Breakdown, DailyBars, Stat } from "@/components/charts";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { AddTagsForm } from "@/components/add-tags-form";
@@ -7,19 +9,25 @@ import { EditTargetForm } from "@/components/edit-target-form";
 import { LinkTarget } from "@/components/link-target";
 import { LocalTime } from "@/components/local-time";
 import { PagePreview } from "@/components/page-preview";
+import { PlacementForm } from "@/components/placement-form";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { BulkPlacementForm } from "@/components/bulk-placement-form";
 import { QrButton } from "@/components/qr-button";
 import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { listWorkspaces } from "@/lib/accounts";
 import { moveLinkToWorkspace } from "@/lib/actions";
-import { can, requireUser } from "@/lib/auth";
+import { allowed, can, requireUser } from "@/lib/auth";
 import { findDestination, linkOwnership, loadDetail } from "@/lib/data";
+import { placementFields } from "@/lib/parameter-data";
+import { setPlacementStatus } from "@/lib/placement-actions";
+import { listPlacements } from "@/lib/placement-data";
+import { listBulkJobs } from "@/lib/bulk-data";
 import { appOrigin } from "@/lib/origin";
 import {
   browserLabel,
   countryName,
-  formatDay,
   ipLabel,
   isLoopback,
   placeLabel,
@@ -72,7 +80,17 @@ export default async function StatsPage({
   const pageVersion = target?.html ? createHash("sha1").update(target.html).digest("hex").slice(0, 10) : "";
   const base = await appOrigin();
   const shortUrl = `${base}/r/${detail.link.slug}`;
-  const maxClicks = Math.max(...detail.daily.map((day) => day.clicks), 0);
+  const canPlace = allowed(user, ownership.workspaceId, "placements.manage");
+  const [placementRows, fields, bulkJobs] = await Promise.all([
+    listPlacements(detail.link.id),
+    canPlace ? placementFields(ownership.workspaceId) : Promise.resolve([]),
+    listBulkJobs(detail.link.id),
+  ]);
+  const bulkRunning = bulkJobs.some((job) => job.status === "queued" || job.status === "running");
+  // A job still queued after two minutes usually means no worker is running.
+  const stalled = bulkJobs.some(
+    (job) => job.status === "queued" && Date.now() - new Date(job.createdAt).getTime() > 2 * 60 * 1000,
+  );
 
   return (
     <>
@@ -159,26 +177,157 @@ export default async function StatsPage({
           {canEdit ? <AddTagsForm slug={detail.link.slug} /> : null}
         </section>
 
+        <section id="placements" className="rounded-2xl border border-line bg-card p-5">
+          <h2 className="font-serif text-2xl">Placements</h2>
+          <p className="mt-1 text-sm text-muted">
+            Each placement is one real QR code or printed spot, with its own short address and the labels set in{" "}
+            <a href={`/workspaces/${ownership.workspaceId}/parameters`} className="text-teal hover:underline">
+              {ownership.workspaceName} parameters
+            </a>
+            . Scans of a placement also count in the totals above.
+          </p>
+          {placementRows.length === 0 ? (
+            <p className="empty-state mt-4 text-sm">No placements yet.</p>
+          ) : (
+            <ul className="mt-4 grid gap-3">
+              {placementRows.map((p) => {
+                const url = `${base}/q/${p.code}`;
+                const title = p.name || p.code;
+                return (
+                  <li
+                    key={p.id}
+                    className={`grid gap-3 rounded-xl border border-line px-4 py-3 md:grid-cols-[1fr_auto] md:items-center ${
+                      p.isActive ? "" : "bg-paper text-muted"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{title}</span>
+                        {p.legacyTag ? (
+                          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-muted">
+                            from tag <span className="font-mono">{p.legacyTag}</span>
+                          </span>
+                        ) : null}
+                        {p.isActive ? null : (
+                          <span className="rounded-full border border-line px-2 py-0.5 text-xs">Inactive · still redirects</span>
+                        )}
+                      </p>
+                      <p className="mt-1 truncate font-mono text-sm text-teal">{url}</p>
+                      {p.values.length > 0 ? (
+                        <ul className="mt-2 flex flex-wrap gap-2">
+                          {p.values.map((v) => (
+                            <li key={v.parameterId} className="rounded-full border border-line bg-paper px-3 py-1 text-xs">
+                              <span className="text-muted">{v.name}:</span>{" "}
+                              <span className="font-mono">{v.value}</span>
+                              {v.label ? <span className="text-muted"> · {v.label}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm md:justify-end">
+                      <p>
+                        <span className="num">{p.clicks}</span> <span className="text-muted">clicks</span>
+                      </p>
+                      <p>
+                        <span className="num">{p.visitors}</span> <span className="text-muted">visitors</span>
+                      </p>
+                      <CopyButton value={url} />
+                      <QrButton slug={detail.link.slug} placement={p.code} label={title} url={url} />
+                      {canPlace ? (
+                        <ActionForm
+                          action={setPlacementStatus}
+                          submit={p.isActive ? "Deactivate" : "Activate"}
+                          variant={p.isActive ? "danger" : "secondary"}
+                          confirm={
+                            p.isActive
+                              ? `Deactivate ${title}? Its code keeps redirecting and counting scans, since it may be printed.`
+                              : undefined
+                          }
+                          quiet
+                          inline
+                        >
+                          <input type="hidden" name="placement_id" value={p.id} />
+                          <input type="hidden" name="is_active" value={p.isActive ? "false" : "true"} />
+                        </ActionForm>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {canPlace ? (
+            <div className="mt-5 border-t border-line pt-5">
+              <h3 className="mb-3 text-lg font-semibold">Add a placement</h3>
+              <PlacementForm
+                slug={detail.link.slug}
+                fields={fields}
+                base={base}
+                manageHref={`/workspaces/${ownership.workspaceId}/parameters`}
+              />
+            </div>
+          ) : null}
+          {canPlace ? (
+            <div className="mt-5 border-t border-line pt-5">
+              <h3 className="mb-3 text-lg font-semibold">Add many from CSV</h3>
+              <BulkPlacementForm slug={detail.link.slug} columns={["name", ...fields.map((f) => f.key)]} />
+            </div>
+          ) : null}
+          {bulkJobs.length > 0 ? (
+            <div className="mt-5 border-t border-line pt-5">
+              <AutoRefresh active={bulkRunning} />
+              <h3 className="mb-3 text-lg font-semibold">Bulk uploads</h3>
+              {stalled ? (
+                <p className="mb-3 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn" role="alert">
+                  An upload has been waiting for over two minutes. The background worker may not be running; start it
+                  with <span className="font-mono">npm run worker</span>.
+                </p>
+              ) : null}
+              <ul className="grid gap-2">
+                {bulkJobs.map((job) => (
+                  <li
+                    key={job.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">
+                        {job.total.toLocaleString("en")} placement{job.total === 1 ? "" : "s"} ·{" "}
+                        {job.format.toUpperCase()}
+                      </p>
+                      <p className="text-xs text-muted">
+                        <LocalTime iso={job.createdAt} />
+                        {job.status === "failed" && job.error ? ` · ${job.error}` : ""}
+                      </p>
+                    </div>
+                    {job.status === "done" ? (
+                      job.hasZip ? (
+                        <a href={`/stats/${detail.link.slug}/bulk/${job.id}`} className="btn-primary text-sm no-underline">
+                          Download zip
+                        </a>
+                      ) : (
+                        <span className="text-muted">Zip expired · the placements are listed above</span>
+                      )
+                    ) : job.status === "failed" ? (
+                      <span className="text-warn">Failed</span>
+                    ) : (
+                      <span className="num text-muted" role="status">
+                        {job.status === "queued"
+                          ? "Waiting…"
+                          : `Making QR codes ${job.processed.toLocaleString("en")} / ${job.total.toLocaleString("en")}`}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+
         <section className="rounded-2xl border border-line bg-card p-5">
           <h2 className="font-serif text-2xl">Last 14 days</h2>
           <p className="mt-1 text-sm text-muted">Human visits only. Days are grouped in UTC.</p>
-          <div className="mt-6 flex h-36 items-end gap-1.5">
-            {detail.daily.map((day) => {
-              const height = maxClicks === 0 ? 4 : Math.max(4, (day.clicks / maxClicks) * 100);
-              return (
-                <div key={day.day} className="flex h-full flex-1 flex-col justify-end" title={`${formatDay(day.day)}: ${day.clicks}`}>
-                  <div
-                    className="rounded-sm bg-teal"
-                    style={{ height: `${height}%`, opacity: day.clicks === 0 ? 0.25 : 1 }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-2 flex justify-between text-xs text-muted">
-            <span>{detail.daily[0] ? formatDay(detail.daily[0].day) : ""}</span>
-            <span>{detail.daily.at(-1) ? formatDay(detail.daily.at(-1)!.day) : ""}</span>
-          </div>
+          <DailyBars days={detail.daily} label="Human visits per day, last 14 days" />
         </section>
 
         <VisitorMap countries={detail.countries} />
@@ -203,7 +352,7 @@ export default async function StatsPage({
         <section className="grid gap-3">
           <h2 className="font-serif text-2xl">Recent visits</h2>
           {detail.recent.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-line px-5 py-8 text-muted">
+            <p className="empty-state">
               No visits yet.
             </p>
           ) : (
@@ -256,16 +405,13 @@ export default async function StatsPage({
             </p>
             <ActionForm action={moveLinkToWorkspace} submit="Move link" pending="Moving…" variant="secondary" className="mt-4 grid gap-3">
               <input type="hidden" name="slug" value={detail.link.slug} />
-              <select name="workspace_id" required defaultValue="" className="field w-auto min-w-48" aria-label="Workspace">
-                <option value="" disabled>
-                  Choose a workspace
-                </option>
-                {moveTargets.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
+              <FormSelect
+                name="workspace_id"
+                required
+                options={moveTargets.map((w) => ({ value: w.id, label: w.name }))}
+                placeholder="Choose a workspace"
+                ariaLabel="Workspace"
+              />
             </ActionForm>
           </section>
         ) : null}
@@ -306,50 +452,5 @@ function PlatformRow({
         <QrButton slug={slug} tag={tag} url={url} />
       </div>
     </li>
-  );
-}
-
-function Stat({ label, value, hint }: { label: string; value: number; hint: string }) {
-  return (
-    <article className="rounded-2xl border border-line bg-card px-4 py-4">
-      <p className="text-sm text-muted">{label}</p>
-      <p className="num mt-1 font-serif text-4xl">{value}</p>
-      <p className="mt-1 text-sm text-muted">{hint}</p>
-    </article>
-  );
-}
-
-function Breakdown({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { label: string; clicks: number }[];
-}) {
-  const max = Math.max(...rows.map((row) => row.clicks), 0);
-  return (
-    <article className="rounded-2xl border border-line bg-card p-5">
-      <h2 className="font-serif text-2xl">{title}</h2>
-      {rows.length === 0 ? (
-        <p className="mt-4 text-sm text-muted">No visits yet.</p>
-      ) : (
-        <ul className="mt-4 grid gap-3">
-          {rows.map((row) => (
-            <li key={row.label}>
-              <div className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="truncate">{row.label}</span>
-                <span className="num text-muted">{row.clicks}</span>
-              </div>
-              <div className="mt-1 h-1.5 rounded-full bg-paper">
-                <div
-                  className="h-1.5 rounded-full bg-teal"
-                  style={{ width: `${max === 0 ? 0 : (row.clicks / max) * 100}%` }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </article>
   );
 }

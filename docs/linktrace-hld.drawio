@@ -1,0 +1,336 @@
+<mxfile host="app.diagrams.net" agent="Cursor" version="22.1.0" type="device">
+  <diagram id="mvp-system-context" name="MVP System Context">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Link Trace App — MVP High-Level Design (no Joget)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="720" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Next.js UI/API · PostgreSQL · Redis/BullMQ · Node worker (QR generation + click ingest) · auth owned by Next.js" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#6B7280;" vertex="1" parent="1">
+          <mxGeometry x="40" y="52" width="900" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- Layer bands -->
+        <mxCell id="band-clients" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F9FAFB;strokeColor=#E5E7EB;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="1200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="band-clients-label" value="CLIENTS" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=1;fontColor=#9CA3AF;" vertex="1" parent="1">
+          <mxGeometry x="56" y="108" width="80" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band-app" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#E5E7EB;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="230" width="1200" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="band-app-label" value="APPLICATION" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=1;fontColor=#9CA3AF;" vertex="1" parent="1">
+          <mxGeometry x="56" y="238" width="120" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band-data" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F9FAFB;strokeColor=#E5E7EB;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="390" width="1200" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="band-data-label" value="DATA &amp; QUEUE" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=1;fontColor=#9CA3AF;" vertex="1" parent="1">
+          <mxGeometry x="56" y="398" width="120" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band-worker" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#E5E7EB;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="1200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="band-worker-label" value="ASYNC WORKERS" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;fontStyle=1;fontColor=#9CA3AF;" vertex="1" parent="1">
+          <mxGeometry x="56" y="568" width="140" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Nodes -->
+        <mxCell id="users" value="&#xa;&lt;b&gt;Users / Clients&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot; color=&quot;#6B7280&quot;&gt;Browser · QR scanners · redirect traffic&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontColor=#111827;fontSize=14;align=center;verticalAlign=middle;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="480" y="130" width="280" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="nextjs" value="&#xa;&lt;b&gt;Next.js App&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot; color=&quot;#DBEAFE&quot;&gt;UI + API · auth/session · campaigns · links&lt;br&gt;Redirect endpoint · enqueue jobs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=14;align=center;verticalAlign=middle;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="265" width="340" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="redis" value="&#xa;&lt;b&gt;Redis + BullMQ&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot; color=&quot;#6B7280&quot;&gt;Queues: qr-generation · click-ingest&lt;br&gt;Retries · buffering&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#111827;fontSize=14;align=center;verticalAlign=middle;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="180" y="430" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="postgres" value="&#xa;&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot; color=&quot;#6B7280&quot;&gt;users · campaigns · links · click_events&lt;br&gt;QR metadata&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontColor=#111827;fontSize=14;align=center;verticalAlign=middle;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="430" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="worker" value="&#xa;&lt;b&gt;Node.js Worker Process&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot; color=&quot;#6B7280&quot;&gt;QR image generation · async click event inserts&lt;br&gt;(separate process from Next.js)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0E7FF;strokeColor=#4F46E5;fontColor=#111827;fontSize=14;align=center;verticalAlign=middle;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="420" y="590" width="360" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="e-users-nextjs" value="Login · manage campaigns · click/scan links" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;fontColor=#6B7280;fontSize=11;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="users" target="nextjs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-nextjs-redis" value="Enqueue QR / click jobs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;fontColor=#1D4ED8;fontSize=11;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="nextjs" target="redis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-nextjs-pg" value="CRUD reads/writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;fontColor=#1D4ED8;fontSize=11;endArrow=block;endFill=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="nextjs" target="postgres">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-redis-worker" value="Consume jobs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;fontColor=#991B1B;fontSize=11;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="redis" target="worker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-worker-pg" value="Persist QR assets · click rows" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4F46E5;fontColor=#3730A3;fontSize=11;endArrow=block;endFill=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="worker" target="postgres">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E5E7EB;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="710" width="1200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-title" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="56" y="718" width="60" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-next" value="Next.js (core)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="56" y="746" width="120" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-redis" value="Redis / queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="190" y="746" width="110" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-pg" value="PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="314" y="746" width="100" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-worker" value="Node worker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0E7FF;strokeColor=#4F46E5;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="428" y="746" width="100" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-note" value="MVP cut: no Joget entrance/workflow. Auth + campaign lifecycle live entirely in Next.js." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#6B7280;" vertex="1" parent="1">
+          <mxGeometry x="550" y="746" width="640" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="&lt;b&gt;MVP intent:&lt;/b&gt; Ship core link tracing fast — create campaign/links, redirect + track clicks, generate QR async. Skip external workflow platform; add Joget later as an integration layer without changing the data/queue core." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#93C5FD;fontColor=#1E3A8A;fontSize=11;align=left;spacingLeft=12;spacingRight=12;spacingTop=8;spacingBottom=8;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="810" width="1200" height="56" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="mvp-flows" name="MVP Primary Flows">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="ftitle" value="MVP Primary Flows (no Joget)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="480" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- Flow 1 -->
+        <mxCell id="f1-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#93C5FD;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="1360" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="f1-title" value="1. Sign in &amp; manage campaigns" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#1E40AF;" vertex="1" parent="1">
+          <mxGeometry x="56" y="80" width="320" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="f1a" value="User opens&#xa;Next.js app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="70" y="120" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f1b" value="Auth/session&#xa;(NextAuth /&#xa;credentials)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="260" y="120" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f1c" value="Create / edit&#xa;campaigns &amp;&#xa;links in UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="460" y="120" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f1d" value="Persist to&#xa;PostgreSQL&#xa;(active status)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="660" y="120" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f1e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;endArrow=block;endFill=1;" edge="1" parent="1" source="f1a" target="f1b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f1e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" edge="1" parent="1" source="f1b" target="f1c">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f1e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" edge="1" parent="1" source="f1c" target="f1d">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Flow 2 -->
+        <mxCell id="f2-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF2F2;strokeColor=#FECACA;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="1360" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="f2-title" value="2. QR generation (async)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#991B1B;" vertex="1" parent="1">
+          <mxGeometry x="56" y="250" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="f2a" value="Link created&#xa;/ updated" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="70" y="290" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f2b" value="Enqueue&#xa;qr-generation&#xa;(BullMQ)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="260" y="290" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f2c" value="Worker renders&#xa;QR · stores&#xa;asset" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0E7FF;strokeColor=#4F46E5;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="460" y="290" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f2d" value="Update&#xa;links.qr_url&#xa;in PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="660" y="290" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f2e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" edge="1" parent="1" source="f2a" target="f2b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#DC2626;endArrow=block;endFill=1;" edge="1" parent="1" source="f2b" target="f2c">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4F46E5;endArrow=block;endFill=1;" edge="1" parent="1" source="f2c" target="f2d">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Flow 3 -->
+        <mxCell id="f3-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#A7F3D0;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="410" width="1360" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="f3-title" value="3. Click / scan → redirect + click insert" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry x="56" y="420" width="400" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="f3a" value="Client hits&#xa;/r/:code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="70" y="470" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3b" value="Next.js lookup&#xa;destination&#xa;(PG / cache)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="240" y="470" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3c" value="302 redirect&#xa;immediately" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="430" y="470" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3d" value="Enqueue&#xa;click-ingest&#xa;(async)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="600" y="470" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e" value="Worker batch-&#xa;inserts&#xa;click_events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0E7FF;strokeColor=#4F46E5;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="780" y="470" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3f" value="PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="970" y="470" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;endArrow=block;endFill=1;" edge="1" parent="1" source="f3a" target="f3b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" edge="1" parent="1" source="f3b" target="f3c">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e3" value="non-blocking" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#DC2626;fontColor=#991B1B;fontSize=10;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="f3c" target="f3d">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#DC2626;endArrow=block;endFill=1;" edge="1" parent="1" source="f3d" target="f3e">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4F46E5;endArrow=block;endFill=1;" edge="1" parent="1" source="f3e" target="f3f">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Flow 4 analytics -->
+        <mxCell id="f4-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#D1D5DB;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="1360" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="f4-title" value="4. Basic analytics (MVP)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="56" y="610" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="f4a" value="Dashboard&#xa;requests&#xa;stats API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="70" y="650" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f4b" value="Aggregate&#xa;click_events&#xa;in PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="260" y="650" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f4c" value="Render counts&#xa;by link /&#xa;campaign / day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="460" y="650" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f4e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" edge="1" parent="1" source="f4a" target="f4b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#059669;endArrow=block;endFill=1;" edge="1" parent="1" source="f4b" target="f4c">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="mvp-scope" name="MVP Scope &amp; Data">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="stitle" value="MVP Scope, Data Model &amp; Path to Full Design" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="640" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- In / Out scope -->
+        <mxCell id="in-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#6EE7B7;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="540" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="in-title" value="In MVP" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry x="56" y="92" width="100" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="in-body" value="• Next.js auth (email/password or OAuth)&lt;br&gt;• Campaign + short link CRUD&lt;br&gt;• Public redirect /r/:code&lt;br&gt;• Async QR generation (BullMQ)&lt;br&gt;• Async click ingest (BullMQ)&lt;br&gt;• Basic analytics dashboard&lt;br&gt;• PostgreSQL as single source of truth" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontColor=#064E3B;" vertex="1" parent="1">
+          <mxGeometry x="56" y="124" width="500" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="out-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF2F2;strokeColor=#FECACA;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="620" y="80" width="540" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="out-title" value="Out of MVP (later / full HLD)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#991B1B;" vertex="1" parent="1">
+          <mxGeometry x="636" y="92" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="out-body" value="• Joget portal entrance / SSO&lt;br&gt;• User-configured process workflows&lt;br&gt;• Campaign approval chains&lt;br&gt;• Joget webhook status sync&lt;br&gt;• Multi-tenant org hierarchy (optional)&lt;br&gt;• Geo enrichment / CDN for QR assets&lt;br&gt;• Advanced analytics / exports" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontColor=#7F1D1D;" vertex="1" parent="1">
+          <mxGeometry x="636" y="124" width="500" height="160" as="geometry" />
+        </mxCell>
+
+        <!-- Data model -->
+        <mxCell id="dm-title" value="Logical data model (MVP)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="280" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tbl-users" value="&lt;b&gt;users&lt;/b&gt;&lt;hr&gt;id&lt;br&gt;email&lt;br&gt;password_hash&lt;br&gt;name&lt;br&gt;created_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=12;align=left;spacingLeft=12;spacingTop=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="180" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl-campaigns" value="&lt;b&gt;campaigns&lt;/b&gt;&lt;hr&gt;id&lt;br&gt;user_id FK&lt;br&gt;name&lt;br&gt;status (draft/active)&lt;br&gt;created_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=12;align=left;spacingLeft=12;spacingTop=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="260" y="370" width="180" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl-links" value="&lt;b&gt;links&lt;/b&gt;&lt;hr&gt;id&lt;br&gt;campaign_id FK&lt;br&gt;code (unique)&lt;br&gt;destination_url&lt;br&gt;qr_url&lt;br&gt;created_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=12;align=left;spacingLeft=12;spacingTop=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="480" y="370" width="180" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl-clicks" value="&lt;b&gt;click_events&lt;/b&gt;&lt;hr&gt;id&lt;br&gt;link_id FK&lt;br&gt;ts&lt;br&gt;ua&lt;br&gt;ip_hash&lt;br&gt;meta jsonb" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=12;align=left;spacingLeft=12;spacingTop=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="700" y="370" width="180" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl-jobs" value="&lt;b&gt;BullMQ (Redis)&lt;/b&gt;&lt;hr&gt;qr-generation&lt;br&gt;{ linkId, url, size }&lt;br&gt;&lt;br&gt;click-ingest&lt;br&gt;{ linkId, ts, ua,&lt;br&gt;ipHash, meta }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontSize=12;align=left;spacingLeft=12;spacingTop=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="920" y="370" width="200" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rel1" value="1:N" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#059669;fontColor=#065F46;fontSize=11;endArrow=ERmany;startArrow=ERone;endFill=0;startFill=0;" edge="1" parent="1" source="tbl-users" target="tbl-campaigns">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel2" value="1:N" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#059669;fontColor=#065F46;fontSize=11;endArrow=ERmany;startArrow=ERone;endFill=0;startFill=0;" edge="1" parent="1" source="tbl-campaigns" target="tbl-links">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel3" value="1:N" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#059669;fontColor=#065F46;fontSize=11;endArrow=ERmany;startArrow=ERone;endFill=0;startFill=0;" edge="1" parent="1" source="tbl-links" target="tbl-clicks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Evolution -->
+        <mxCell id="evo-title" value="Evolution to full design (with Joget)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="360" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="evo-box" value="MVP core stays: Next.js · PostgreSQL · Redis/BullMQ · Worker.&lt;br&gt;Later add: Joget as entrance + workflow engine; Next.js calls process/start on campaign create; optional webhook updates campaign.status / joget_process_id.&lt;br&gt;No rewrite of redirect, QR, or click-ingest paths." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFBEB;strokeColor=#FCD34D;fontColor=#78350F;fontSize=12;align=left;spacingLeft=14;spacingRight=14;spacingTop=12;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="1080" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Deploy -->
+        <mxCell id="dep-title" value="MVP deployment (4 processes)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#374151;" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="300" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="dep-next" value="&lt;b&gt;Next.js&lt;/b&gt;&lt;br&gt;UI + API + auth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2563EB;strokeColor=#1D4ED8;fontColor=#FFFFFF;fontSize=12;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="760" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dep-worker" value="&lt;b&gt;Worker&lt;/b&gt;&lt;br&gt;QR + click jobs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0E7FF;strokeColor=#4F46E5;fontSize=12;align=center;" vertex="1" parent="1">
+          <mxGeometry x="250" y="760" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dep-pg" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;source of truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#059669;fontSize=12;align=center;" vertex="1" parent="1">
+          <mxGeometry x="460" y="760" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dep-redis" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;BullMQ queues" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;fontSize=12;align=center;" vertex="1" parent="1">
+          <mxGeometry x="670" y="760" width="180" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
