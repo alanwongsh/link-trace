@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { can, getCurrentUser } from "@/lib/auth";
 import { toCsv } from "@/lib/csv";
 import { findDestination } from "@/lib/data";
-import { linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
+import { filterValues, linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
 
 // Rows the CSV can hold; far more than the page shows.
 const CSV_ROW_LIMIT = 50_000;
@@ -20,12 +20,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ slu
 
   const parameters = await reportParameters(found.data.id);
   const search = request.nextUrl.searchParams;
-  const { groupBy, range } = readReportQuery(
-    { by: search.get("by") ?? undefined, range: search.get("range") ?? undefined },
+  const { groupBy, range, filters } = readReportQuery(
+    { by: search.get("by") ?? undefined, range: search.get("range") ?? undefined, filters: filterValues(search.entries()) },
     parameters,
     parameters.slice(0, 1),
   );
-  const report = await linkReport(found.data.id, groupBy.map((p) => p.id), range, CSV_ROW_LIMIT);
+  const report = await linkReport(found.data.id, groupBy.map((p) => p.id), range, {
+    limit: CSV_ROW_LIMIT,
+    filters: filters.map((f) => ({ parameterId: f.parameter.id, values: f.values })),
+  });
 
   const header = [...groupBy.flatMap((p) => [p.key, `${p.key}_label`]), "came_through", "clicks", "visitors"];
   const rows = report.rows.map((row) => [

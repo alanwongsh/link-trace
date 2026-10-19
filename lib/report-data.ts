@@ -12,8 +12,8 @@ function db(): Db {
   return config.db;
 }
 
-export const REPORT_RANGES = { "7d": 7, "30d": 30, "90d": 90, all: null } as const;
-export type ReportRange = keyof typeof REPORT_RANGES;
+export { REPORT_RANGES, type ReportRange } from "@/lib/report-periods";
+import { REPORT_RANGES, type ReportRange } from "@/lib/report-periods";
 // Labels a report can be grouped by at once.
 export const MAX_GROUP_BY = 3;
 // Rows a report returns; the rest are left out and counted.
@@ -32,19 +32,64 @@ export async function reportParameters(linkId: string): Promise<ReportParameter[
   return [...rows];
 }
 
-// Reads ?by=key1,key2&range=30d. Unknown keys are dropped, and so are repeats past MAX_GROUP_BY.
-// With no by=, the report groups by fallback (normally the first label the link's labelled links use).
+// A filter on one label: visits whose labelled link has any of these values (case ignored).
+export type ReportFilter = { parameter: ReportParameter; values: string[] };
+// Filter values in the address are named f_<label key>, one per value: ?f_store=KL001&f_store=PG002.
+export const FILTER_PREFIX = "f_";
+// Values one filter can hold.
+const MAX_FILTER_VALUES = 500;
+
+// The f_<key> values from an address's query, by label key.
+export function filterValues(entries: Iterable<[string, string | string[] | undefined]>): Record<string, string[]> {
+  const found: Record<string, string[]> = {};
+  for (const [name, raw] of entries) {
+    if (!name.startsWith(FILTER_PREFIX) || raw === undefined) continue;
+    const key = name.slice(FILTER_PREFIX.length).toLowerCase();
+    (found[key] ??= []).push(...(Array.isArray(raw) ? raw : [raw]));
+  }
+  return found;
+}
+
+// Reads ?by=key1,key2&range=30d&f_key=value…. Unknown keys are dropped, and so are group-by labels
+// past MAX_GROUP_BY. With no by=, the report groups by fallback (normally the first label the
+// link's labelled links use). Several values of one filter mean any of them; several filters, all.
 export function readReportQuery(
-  raw: { by?: string; range?: string },
+  raw: { by?: string; range?: string; filters?: Record<string, string[]> },
   parameters: ReportParameter[],
   fallback: ReportParameter[],
-): { groupBy: ReportParameter[]; range: ReportRange; explicit: boolean } {
+): { groupBy: ReportParameter[]; range: ReportRange; filters: ReportFilter[]; explicit: boolean } {
   const range = (Object.keys(REPORT_RANGES) as ReportRange[]).find((r) => r === raw.range) ?? "30d";
-  if (raw.by === undefined) return { groupBy: fallback.slice(0, MAX_GROUP_BY), range, explicit: false };
   const byKey = new Map(parameters.map((p) => [p.key, p]));
+  // In label order, so the filter bar and the address agree.
+  const filters = parameters.flatMap((parameter) => {
+    const values = [...new Set((raw.filters?.[parameter.key] ?? []).map((v) => v.trim()).filter(Boolean))].slice(
+      0,
+      MAX_FILTER_VALUES,
+    );
+    return values.length ? [{ parameter, values }] : [];
+  });
+  if (raw.by === undefined) return { groupBy: fallback.slice(0, MAX_GROUP_BY), range, filters, explicit: false };
   const keys = [...new Set(raw.by.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean))];
   const groupBy = keys.flatMap((k) => (byKey.has(k) ? [byKey.get(k)!] : [])).slice(0, MAX_GROUP_BY);
-  return { groupBy, range, explicit: true };
+  return { groupBy, range, filters, explicit: true };
+}
+
+// The values each label has on this link's labelled links, with option labels, for the filter bar.
+export async function reportFilterOptions(linkId: string): Promise<Map<string, { value: string; label: string | null }[]>> {
+  const rows = await db().execute<{ parameter_id: string; value: string; label: string | null }>(sql`
+    select distinct v.parameter_id, v.value, o.label
+    from placement_values v
+    join placements p on p.id = v.placement_id
+    left join tracking_parameter_options o on o.id = v.option_id
+    where p.link_id = ${linkId}
+    order by v.value`);
+  const byParameter = new Map<string, { value: string; label: string | null }[]>();
+  for (const row of rows) {
+    const list = byParameter.get(row.parameter_id) ?? [];
+    if (!list.some((v) => v.value.toLowerCase() === row.value.toLowerCase())) list.push({ value: row.value, label: row.label });
+    byParameter.set(row.parameter_id, list);
+  }
+  return byParameter;
 }
 
 export type ReportCell = { value: string; label: string | null } | null;
@@ -97,9 +142,19 @@ export async function linkReport(
   linkId: string,
   parameterIds: string[],
   range: ReportRange,
-  limit = REPORT_ROW_LIMIT,
+  options: { limit?: number; filters?: { parameterId: string; values: string[] }[] } = {},
 ): Promise<LinkReport> {
+  const limit = options.limit ?? REPORT_ROW_LIMIT;
   const totalsByPlacement = perPlacementTotals(linkId, REPORT_RANGES[range]);
+  // Each filter keeps labelled links with any of its values; together they must all match. The
+  // main link has no labels, so it drops out once any filter is set.
+  const filters = (options.filters ?? []).filter((f) => f.values.length > 0);
+  const matches = filters.map(
+    (f) => sql`exists (
+      select 1 from placement_values fv
+      where fv.placement_id = p.placement_id and fv.parameter_id = ${f.parameterId}
+        and lower(fv.value) in (${sql.join(f.values.map((v) => sql`${v.toLowerCase()}`), sql`, `)}))`,
+  );
   const joins = parameterIds.map(
     (id, i) => sql`
       left join placement_values ${sql.raw(`v${i}`)} on ${sql.raw(`v${i}`)}.placement_id = p.placement_id
@@ -119,7 +174,7 @@ export async function linkReport(
       sum(p.clicks)::int as clicks, sum(p.visitors)::int as visitors,
       (sum(sum(p.clicks)) over ())::int as total_clicks, (sum(sum(p.visitors)) over ())::int as total_visitors
     from p ${sql.join(joins, sql` `)}
-    where p.clicks > 0
+    where ${sql.join([sql`p.clicks > 0`, ...matches], sql` and `)}
     group by ${sql.join([...groups, sql`p.placement_id is null`], sql`, `)}
     order by clicks desc, visitors desc
     limit ${limit + 1}`);

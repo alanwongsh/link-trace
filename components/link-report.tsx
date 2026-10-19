@@ -1,15 +1,18 @@
+import { ReportFilters } from "@/components/report-filters";
 import {
+  FILTER_PREFIX,
   MAX_GROUP_BY,
   REPORT_RANGES,
   REPORT_ROW_LIMIT,
   type LinkReport,
   type ReportCell,
+  type ReportFilter,
   type ReportParameter,
   type ReportRange,
 } from "@/lib/report-data";
 import { timezoneLabel } from "@/lib/timezones";
 
-const RANGE_LABELS: Record<ReportRange, string> = { "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All time" };
+import { RANGE_LABELS } from "@/lib/report-periods";
 
 // Human visits to one link, grouped by the labels picked in the URL. Controls are plain links,
 // like the tabs, so a report can be bookmarked or shared.
@@ -21,6 +24,8 @@ export function LinkReportView({
   report,
   labelledLinksHref,
   timezone,
+  filters,
+  filterOptions,
 }: {
   // The workspace timezone the period's days are counted in.
   timezone: string;
@@ -31,13 +36,25 @@ export function LinkReportView({
   range: ReportRange;
   report: LinkReport;
   labelledLinksHref: string;
+  filters: ReportFilter[];
+  // The values each label (by id) has on this link's labelled links.
+  filterOptions: Map<string, { value: string; label: string | null }[]>;
 }) {
-  const href = (by: ReportParameter[], r: ReportRange) => {
-    const query = new URLSearchParams({ tab: "report", by: by.map((p) => p.key).join(","), range: r });
-    return `/stats/${slug}?${query}`;
-  };
-  const csvHref = `/stats/${slug}/report?${new URLSearchParams({ by: groupBy.map((p) => p.key).join(","), range })}`;
+  // Every control keeps the active filters, so changing the grouping or period does not drop them.
+  const filterQuery = filters.flatMap((f) => f.values.map((v) => [`${FILTER_PREFIX}${f.parameter.key}`, v] as [string, string]));
+  const query = (by: ReportParameter[], r: ReportRange, withFilters = true) =>
+    new URLSearchParams([
+      ["tab", "report"],
+      ["by", by.map((p) => p.key).join(",")],
+      ["range", r],
+      ...(withFilters ? filterQuery : []),
+    ]);
+  const href = (by: ReportParameter[], r: ReportRange) => `/stats/${slug}?${query(by, r)}`;
+  const csvQuery = query(groupBy, range);
+  csvQuery.delete("tab");
+  const csvHref = `/stats/${slug}/report?${csvQuery}`;
   const picked = new Set(groupBy.map((p) => p.id));
+  const filtered = filters.length > 0;
 
   return (
     <section className="grid gap-5 rounded-2xl border border-line bg-card p-5">
@@ -100,10 +117,32 @@ export function LinkReportView({
             </a>
           ))}
         </div>
+        {parameters.length > 0 ? (
+          <div className="flex flex-wrap items-start gap-2">
+            <span className="w-20 pt-7 text-muted">Filter</span>
+            <div className="min-w-0 flex-1">
+              <ReportFilters
+                action={`/stats/${slug}`}
+                keep={{ tab: "report", by: groupBy.map((p) => p.key).join(","), range }}
+                fields={parameters.map((p) => ({
+                  key: p.key,
+                  name: p.name,
+                  options: filterOptions.get(p.id) ?? [],
+                  values: filters.find((f) => f.parameter.id === p.id)?.values ?? [],
+                }))}
+                clearHref={filtered ? `/stats/${slug}?${query(groupBy, range, false)}` : null}
+              />
+              <p className="mt-1.5 text-xs text-muted">
+                Any ticked value within a label; all labels together.
+                {filtered ? " Visits through the main link have no labels, so they are left out while filtering." : ""}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {report.totalClicks === 0 ? (
-        <p className="empty-state text-sm">No human visits in this period.</p>
+        <p className="empty-state text-sm">{filtered ? "No human visits match these filters in this period." : "No human visits in this period."}</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line">
           <table className="w-full min-w-[36rem] text-left text-sm">

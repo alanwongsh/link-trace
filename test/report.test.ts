@@ -27,7 +27,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { createParameter, importOptions } = await import("@/lib/parameter-actions");
 const { insertPlacement, pagePlacements } = await import("@/lib/placement-data");
-const { linkReport, readReportQuery, reportParameters } = await import("@/lib/report-data");
+const { filterValues, linkReport, readReportQuery, reportFilterOptions, reportParameters } = await import("@/lib/report-data");
 const { GET: reportCsv } = await import("@/app/stats/[slug]/report/route");
 
 let workspaceId: string;
@@ -173,6 +173,41 @@ describe("link report", () => {
     expect(await total()).toBe(was + 2);
   });
 
+  it("filters by any value within a label and all labels together, leaving the main link out", async () => {
+    const by = (key: string, values: string[]) => ({ parameterId: params[key].id, values });
+    // Store KL001 only (both channels), grouped by channel; case is ignored.
+    expect(simple(await linkReport(linkId, [params.channel.id], "30d", { filters: [by("store", ["kl001"])] }))).toEqual([
+      ["email", 5],
+      ["whatsapp", 3],
+    ]);
+    // KL001 or PG002, and email: two labels combined.
+    const both = await linkReport(linkId, [params.store.id], "30d", {
+      filters: [by("store", ["KL001", "PG002"]), by("channel", ["email"])],
+    });
+    expect(simple(both)).toEqual([
+      ["KL001", 5],
+      ["PG002", 2],
+    ]);
+    expect(both.totalClicks).toBe(7);
+    // No labelled link has this value.
+    expect((await linkReport(linkId, [], "30d", { filters: [by("store", ["ZZ9"])] })).totalClicks).toBe(0);
+  });
+
+  it("reads filters from the address and lists each label's values", async () => {
+    const available = await reportParameters(linkId);
+    const { filters } = readReportQuery(
+      { filters: filterValues([["f_store", ["KL001", " PG002 ", "KL001"]], ["f_nope", "x"], ["f_channel", ""], ["tab", "report"]]) },
+      available,
+      [],
+    );
+    expect(filters.map((f) => [f.parameter.key, f.values])).toEqual([["store", ["KL001", "PG002"]]]);
+    const options = await reportFilterOptions(linkId);
+    expect(options.get(params.store.id)).toEqual([
+      { value: "KL001", label: "Mid Valley" },
+      { value: "PG002", label: null },
+    ]);
+  });
+
   it("exports the same numbers as CSV, only to people who can see the link", async () => {
     const response = await reportCsv(new NextRequest("http://localhost/stats/promo/report?by=channel&range=30d"), {
       params: Promise.resolve({ slug: "promo" }),
@@ -183,6 +218,14 @@ describe("link report", () => {
       "email,,labelled link,7,7",
       "whatsapp,,labelled link,3,3",
       ",,main link,1,1",
+    ]);
+
+    const filtered = await reportCsv(new NextRequest("http://localhost/stats/promo/report?by=channel&range=30d&f_store=PG002"), {
+      params: Promise.resolve({ slug: "promo" }),
+    });
+    expect((await filtered.text()).trim().split(/\r?\n/)).toEqual([
+      "channel,channel_label,came_through,clicks,visitors",
+      "email,,labelled link,2,2",
     ]);
 
     session.user = await createUser({ [await createWorkspace()]: "owner" });

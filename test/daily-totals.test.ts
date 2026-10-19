@@ -3,7 +3,8 @@ import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@/lib/accounts";
 import { rebuildTotals, rollUpClicks } from "@/lib/click-rollup";
-import { clicks, links, workspaces } from "@/lib/db/schema";
+import { clicks, links, placements, workspaces } from "@/lib/db/schema";
+import { readLayout } from "@/lib/overview-layout";
 import { createUser, createWorkspace, db, form, resetData } from "./helpers";
 import { testDatabaseUrl } from "./test-db";
 
@@ -38,6 +39,7 @@ afterAll(() => client.end());
 
 const { listLinks, loadDashboard, loadDetail } = await import("@/lib/data");
 const { updateWorkspaceTimezone } = await import("@/lib/admin-actions");
+const { loadOverview } = await import("@/lib/overview-data");
 
 let workspaceId: string;
 let linkId: string;
@@ -158,5 +160,50 @@ describe("dashboard and link list from daily totals", () => {
 
     const list = await listLinks({ workspaceIds: [workspaceId] });
     expect(list.ok && list.data.map((l) => [l.slug, l.click_count])).toEqual([["promo", 3]]);
+  });
+});
+
+describe("overview for a period", () => {
+  it("totals the period, compares with the one before, and picks the trend's steps", async () => {
+    const [{ id: placementId }] = await db()
+      .insert(placements)
+      .values({ linkId, code: "poster01", labelKey: "name=|x" })
+      .returning({ id: placements.id });
+    await db().insert(placements).values({ linkId, code: "unused01", labelKey: "name=|y" });
+    await click(new Date(), { placementId });
+    await click(new Date());
+    await click(new Date(), { isBot: true });
+    await click(eveningUtc(3), { country: "MY" });
+    // The 7 days before the last 7.
+    await click(eveningUtc(9));
+    await click(eveningUtc(400));
+    await rollUpClicks(client);
+
+    const today = await loadOverview(linkId, "today");
+    expect(today.totals).toMatchObject({ clicks: 2, botClicks: 1 });
+    expect(today.granularity).toBe("hour");
+    expect(today.trend.reduce((n, t) => n + t.clicks, 0)).toBe(2);
+    expect(today).toMatchObject({ labelledUsed: 1, labelledActive: 2 });
+
+    const week = await loadOverview(linkId, "7d");
+    expect(week.totals.clicks).toBe(3);
+    expect(week.previous?.clicks).toBe(1);
+    expect(week.trend).toHaveLength(7);
+    expect(week.countries[0]).toEqual({ country: "Unknown", clicks: 2 });
+
+    const all = await loadOverview(linkId, "all");
+    expect(all).toMatchObject({ granularity: "month", previous: null });
+    expect(all.totals.clicks).toBe(5);
+    expect(all.trend.reduce((n, t) => n + t.clicks, 0)).toBe(5);
+    expect(all.trend.length).toBeGreaterThanOrEqual(13);
+  });
+
+  it("reads a saved layout, ignoring anything it does not understand", () => {
+    expect(readLayout(JSON.stringify({ period: "30d", hidden: ["map", 3, "label:store"] }))).toEqual({
+      period: "30d",
+      hidden: ["map", "label:store"],
+    });
+    expect(readLayout("not json")).toEqual({ period: "7d", hidden: [] });
+    expect(readLayout(JSON.stringify({ period: "year" }))).toEqual({ period: "7d", hidden: [] });
   });
 });

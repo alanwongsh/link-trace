@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { FormSelect } from "@/components/form-select";
-import { Breakdown, DailyBars, Stat } from "@/components/charts";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { CopyButton } from "@/components/copy-button";
 import { EditTargetForm } from "@/components/edit-target-form";
+import { LinkOverviewView } from "@/components/link-overview";
 import { LinkReportView } from "@/components/link-report";
 import { LinkTarget } from "@/components/link-target";
 import { ListFilters, Pagination, readPage } from "@/components/list-controls";
@@ -16,7 +17,6 @@ import { BulkPlacementForm } from "@/components/bulk-placement-form";
 import { QrButton } from "@/components/qr-button";
 import { RevealPanels } from "@/components/reveal-panels";
 import { Tabs } from "@/components/tabs";
-import { VisitorMap } from "@/components/visitor-map";
 import { SetupGuide } from "@/components/setup-guide";
 import { TopBar } from "@/components/top-bar";
 import { listWorkspaces } from "@/lib/accounts";
@@ -27,13 +27,21 @@ import { placementFields } from "@/lib/parameter-data";
 import { setPlacementStatus } from "@/lib/placement-actions";
 import { countPlacements, pagePlacements } from "@/lib/placement-data";
 import { listBulkJobs } from "@/lib/bulk-data";
-import { timezoneLabel, timezoneOffset } from "@/lib/timezones";
-import { keepRollupCurrent, linkReport, readReportQuery, reportParameters } from "@/lib/report-data";
+import { loadOverview } from "@/lib/overview-data";
+import { LAYOUT_COOKIE, labelCard, readLayout } from "@/lib/overview-layout";
+import { REPORT_PERIODS } from "@/lib/report-periods";
+import {
+  filterValues,
+  keepRollupCurrent,
+  linkReport,
+  readReportQuery,
+  reportFilterOptions,
+  reportParameters,
+} from "@/lib/report-data";
 import { jobsRunInline } from "@/lib/queue";
 import { appOrigin } from "@/lib/origin";
 import {
   browserLabel,
-  countryName,
   ipLabel,
   isLoopback,
   placeLabel,
@@ -50,11 +58,22 @@ export default async function StatsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ tab?: string; by?: string; range?: string; q?: string; status?: string; page?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireUser();
   const { slug } = await params;
-  const query = await searchParams;
+  // Report filters arrive as repeated f_<label key> values; everything else is one value.
+  const rawQuery = await searchParams;
+  const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+  const query = {
+    tab: first(rawQuery.tab),
+    by: first(rawQuery.by),
+    range: first(rawQuery.range),
+    q: first(rawQuery.q),
+    status: first(rawQuery.status),
+    page: first(rawQuery.page),
+    period: first(rawQuery.period),
+  };
   const result = await loadDetail(slug);
   if (!result.ok) {
     return (
@@ -127,9 +146,44 @@ export default async function StatsPage({
     tab === "report"
       ? await (async () => {
           const parameters = await reportParameters(detail.link.id);
-          const { groupBy, range } = readReportQuery(query, parameters, parameters.slice(0, 1));
-          const report = await linkReport(detail.link.id, groupBy.map((p) => p.id), range);
-          return { parameters, groupBy, range, report };
+          const { groupBy, range, filters } = readReportQuery(
+            { by: query.by, range: query.range, filters: filterValues(Object.entries(rawQuery)) },
+            parameters,
+            parameters.slice(0, 1),
+          );
+          const [report, filterOptions] = await Promise.all([
+            linkReport(detail.link.id, groupBy.map((p) => p.id), range, {
+              filters: filters.map((f) => ({ parameterId: f.parameter.id, values: f.values })),
+            }),
+            reportFilterOptions(detail.link.id),
+          ]);
+          return { parameters, groupBy, range, filters, filterOptions, report };
+        })()
+      : null;
+
+  // The Overview's period numbers and the cards this viewer shows, only on its tab.
+  const overviewData =
+    tab === "overview"
+      ? await (async () => {
+          const layout = readLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
+          const range = REPORT_PERIODS.find((p) => p === query.period) ?? layout.period;
+          const hidden = new Set(layout.hidden);
+          const parameters = await reportParameters(detail.link.id);
+          const shown = parameters.filter((p) => !hidden.has(labelCard(p.key)));
+          const [overview, labels, combos] = await Promise.all([
+            loadOverview(detail.link.id, range),
+            Promise.all(shown.map(async (parameter) => ({ parameter, report: await linkReport(detail.link.id, [parameter.id], range) }))),
+            parameters.length > 1 && !hidden.has("combos")
+              ? linkReport(detail.link.id, parameters.map((p) => p.id), range)
+              : Promise.resolve(null),
+          ]);
+          return {
+            layout,
+            range,
+            overview,
+            labels,
+            combos,
+          };
         })()
       : null;
 
@@ -194,48 +248,16 @@ export default async function StatsPage({
           />
         </div>
 
-        {tab === "overview" ? (
-          <>
-            <p className="-mb-4 text-xs text-muted">
-              Days, today and the last 7 days are counted in {timezoneLabel(detail.timezone)}, {ownership.workspaceName}
-              &apos;s reporting timezone.
-            </p>
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Totals">
-              <Stat label="Clicks" value={detail.total_clicks} hint={`${detail.clicks_7d.toLocaleString("en")} in the last 7 days`} />
-              <Stat label="Visitors" value={detail.unique_visitors} hint="Distinct browsers, counted per day" />
-              <Stat label="IP addresses" value={detail.unique_ips} hint={`Counted per day · ${detail.clicks_today.toLocaleString("en")} clicks today`} />
-              <Stat label="Bot hits" value={detail.bot_clicks} hint="Left out of the other counts" />
-            </section>
-
-            <section className="panel">
-              <h2 className="panel-title">Last 14 days</h2>
-              <p className="mt-1 text-sm text-muted">Human visits only. Days in {timezoneLabel(detail.timezone)}.</p>
-              <DailyBars
-                days={detail.daily}
-                label="Human visits per day, last 14 days"
-                zone={timezoneOffset(detail.timezone)}
-              />
-            </section>
-
-            <VisitorMap countries={detail.countries} />
-
-            <section className="grid gap-4 lg:grid-cols-2">
-              <Breakdown
-                title="Places"
-                rows={detail.countries.slice(0, 8).map((row) => ({
-                  label: row.country === "Unknown" ? "No location" : countryName(row.country),
-                  clicks: row.clicks,
-                }))}
-              />
-              <Breakdown
-                title="Referrers"
-                rows={detail.referrers.map((row) => ({
-                  label: row.referrer,
-                  clicks: row.clicks,
-                }))}
-              />
-            </section>
-
+        {overviewData ? (
+          <LinkOverviewView
+            slug={detail.link.slug}
+            timezone={detail.timezone}
+            range={overviewData.range}
+            layout={overviewData.layout}
+            overview={overviewData.overview}
+            labels={overviewData.labels}
+            combos={overviewData.combos}
+            recent={
             <section className="grid gap-3">
               <h2 className="sub-title">Recent visits</h2>
               {detail.recent.length === 0 ? (
@@ -282,7 +304,8 @@ export default async function StatsPage({
                 </div>
               )}
             </section>
-          </>
+            }
+          />
         ) : null}
 
         {reportData ? (
@@ -294,6 +317,8 @@ export default async function StatsPage({
             report={reportData.report}
             labelledLinksHref={tabHref("links")}
             timezone={detail.timezone}
+            filters={reportData.filters}
+            filterOptions={reportData.filterOptions}
           />
         ) : null}
 
